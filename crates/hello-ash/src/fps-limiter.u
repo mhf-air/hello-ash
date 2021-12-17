@@ -1,0 +1,64 @@
+import {
+	std {
+		thread
+		time { Duration, Instant }
+	}
+}
+
+sample-count--c const usize = 5
+sample-count-float--c const f32 = sample-count--c as f32
+
+Fps-limiter+ struct {
+	counter           Instant
+	frame-time-prefer u32
+	samples           {{u32: sample-count--c}}
+	current-frame     usize
+	delta-frame       u32
+}
+
+Fps-limiter impl {
+	new+ func() Fps-limiter {
+		default-prefer-fps--c const f32 = 60.0
+
+		ret Fps-limiter {
+			counter:           Instant..now()
+			frame-time-prefer: (1000_000.0 / default-prefer-fps--c) as u32
+			samples:           {{0: sample-count--c}}
+			current-frame:     0
+			delta-frame:       0
+		}
+	}
+
+	set-prefer-fps+ (&mut) func(prefer-fps f32) {
+		s.frame-time-prefer = (1000_000.0 / prefer-fps) as u32
+	}
+
+	tick-frame+ (&mut) func() {
+		time-elapsed := s.counter.elapsed()
+		s.counter = Instant..now()
+
+		s.delta-frame = time-elapsed.subsec-micros()
+		s.samples{{s.current-frame}} = s.delta-frame
+		s.current-frame = (s.current-frame + 1) % sample-count--c
+	}
+
+	keep-fps+ (&) func() {
+		if s.frame-time-prefer > s.delta-frame {
+			delay := Duration..from-micros((s.frame-time-prefer ~ s.delta-frame) as u64)
+			thread..sleep(delay)
+		}
+	}
+
+	fps+ (&) func() f32 {
+		sum := 0
+		s.samples.iter().for-each(|a| {
+			sum += a
+		})
+
+		ret 1000_000.0 / (sum as f32 / sample-count-float--c)
+	}
+
+	delta-time+ (&) func() f32 {
+		ret s.delta-frame as f32 / 1000_000.0 // time in second
+	}
+}

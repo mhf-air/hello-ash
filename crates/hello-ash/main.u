@@ -1,0 +1,1116 @@
+import {
+	util hello-ash
+	hello-ash..share
+	hello-ash..Vulkan-app
+
+	ash{
+		vk
+		version..DeviceV1-0--r
+		version..InstanceV1-0--r
+	}
+	cgmath { Deg, Matrix4, Point3, Vector3 }
+	memoffset..offset-of
+	std {
+		ffi {C-string}
+		path..Path
+		ptr
+	}
+}
+
+window-title--c const &'static str = "Model Loading"
+model-path--c const &'static str = "crates/hello-ash/assets/chalet.obj"
+texture-path--c const &'static str = "crates/hello-ash/assets/chalet.jpg"
+
+main func() {
+	program-proc := util..Program-proc..new()
+	app := App..new(&program-proc.event-loop)
+	program-proc.main-loop(app)
+}
+
+// ----------------------------------------------------------------------
+#[repr(C)]
+#[derive(Clone, Copy)]
+Vertex-v3+ struct {
+	pos+       {{f32: 4}}
+	color+     {{f32: 4}}
+	tex-coord+ {{f32: 2}}
+}
+Vertex-v3 impl {
+	get-binding-descriptions+ func() {{vk..Vertex-input-binding-description: 1}} {
+		ret {{
+			vk..Vertex-input-binding-description {
+				binding:    0
+				stride:     std..mem..size-of[Self]() as u32
+				input-rate: vk..Vertex-input-rate..vertex--c
+			}
+		}}
+	}
+
+	get-attribute-descriptions+ func() {{vk..Vertex-input-attribute-description: 3}} {
+		ret {{
+			vk..Vertex-input-attribute-description {
+				binding:  0
+				location: 0
+				format:   vk..Format..r32g32b32a32-sfloat--c
+				offset:   offset-of,,(Self, pos) as u32
+			}
+			vk..Vertex-input-attribute-description {
+				binding:  0
+				location: 1
+				format:   vk..Format..r32g32b32a32-sfloat--c
+				offset:   offset-of,,(Self, color) as u32
+			}
+			vk..Vertex-input-attribute-description {
+				binding:  0
+				location: 2
+				format:   vk..Format..r32g32-sfloat--c
+				offset:   offset-of,,(Self, tex-coord) as u32
+			}
+		}}
+	}
+}
+
+// ----------------------------------------------------------------------
+#[!derive(Debug)]
+App struct {
+	window winit..window..Window
+
+	// vulkan stuff
+	-entry             ash..Entry
+	instance           ash..Instance
+	surface-loader     ash..extensions..khr..Surface
+	surface            vk..Surface-k-h-r
+	debug-utils-loader ash..extensions..ext..Debug-utils
+	debug-messenger    vk..Debug-utils-messenger-e-x-t
+
+	physical-device   vk..Physical-device
+	memory-properties vk..Physical-device-memory-properties
+	device            ash..Device
+
+	queue-family   util..Queue-family-indices
+	graphics-queue vk..Queue
+	present-queue  vk..Queue
+
+	swapchain-loader       ash..extensions..khr..Swapchain
+	swapchain              vk..Swapchain-k-h-r
+	swapchain-images       Vec[vk..Image]
+	swapchain-format       vk..Format
+	swapchain-extent       vk..Extent2-d
+	swapchain-imageviews   Vec[vk..Image-view]
+	swapchain-framebuffers Vec[vk..Framebuffer]
+
+	render-pass       vk..Render-pass
+	ubo-layout        vk..Descriptor-set-layout
+	pipeline-layout   vk..Pipeline-layout
+	graphics-pipeline vk..Pipeline
+
+	depth-image        vk..Image
+	depth-image-view   vk..Image-view
+	depth-image-memory vk..Device-memory
+
+	texture-image        vk..Image
+	texture-image-view   vk..Image-view
+	texture-sampler      vk..Sampler
+	texture-image-memory vk..Device-memory
+
+	-vertices Vec[Vertex-v3]
+	indices   Vec[u32]
+
+	vertex-buffer        vk..Buffer
+	vertex-buffer-memory vk..Device-memory
+	index-buffer         vk..Buffer
+	index-buffer-memory  vk..Device-memory
+
+	uniform-transform      util..Uniform-buffer-object
+	uniform-buffers        Vec[vk..Buffer]
+	uniform-buffers-memory Vec[vk..Device-memory]
+
+	descriptor-pool vk..Descriptor-pool
+	descriptor-sets Vec[vk..Descriptor-set]
+
+	command-pool    vk..Command-pool
+	command-buffers Vec[vk..Command-buffer]
+
+	image-available-semaphores Vec[vk..Semaphore]
+	render-finished-semaphores Vec[vk..Semaphore]
+	in-flight-fences           Vec[vk..Fence]
+	current-frame              usize
+
+	is-framebuffer-resized bool
+}
+
+App impl {
+	new+ func(event-loop &winit..event-loop..Event-loop[()]) App {
+		window := util..init-window(&event-loop, window-title--c,
+			util..window-width--c, util..window-height--c)
+
+		entry := ash..Entry..new().unwrap()
+		instance := share..create-instance(
+			&entry
+			window-title--c
+			util..validation--c.is-enable
+			&util..validation--c.required-validation-layer.to-vec()
+		)
+		surface-stuff := share..create-surface(&entry, &instance, &window,
+			util..window-width--c, util..window-height--c)
+		util..setup-debug-utils(util..validation--c.is-enable, &entry,
+			&instance) -> (debug-utils-loader, debug-messenger)
+		physical-device := share..pick-physical-device(&instance,
+			&surface-stuff, &util..device-extensions--c)
+		physical-device-memory-properties := unsafe {
+			< instance.get-physical-device-memory-properties(physical-device)
+		}
+		share..create-logical-device(
+			&instance
+			physical-device
+			&util..validation--c
+			&util..device-extensions--c
+			&surface-stuff
+		) -> (device, queue-family)
+		graphics-queue := unsafe {
+			< device.get-device-queue(queue-family.graphics-family.unwrap(), 0)
+		}
+		present-queue := unsafe {
+			< device.get-device-queue(queue-family.present-family.unwrap(), 0)
+		}
+		swapchain-stuff := share..create-swapchain(
+			&instance
+			&device
+			physical-device
+			&window
+			&surface-stuff
+			&queue-family
+		)
+		swapchain-imageviews := share..create-image-views(
+			&device
+			swapchain-stuff.swapchain-format
+			&swapchain-stuff.swapchain-images
+		)
+		render-pass := App..create-render-pass(
+			&instance
+			&device
+			physical-device
+			swapchain-stuff.swapchain-format
+		)
+		ubo-layout := share..create-descriptor-set-layout(&device)
+		App..create-graphics-pipeline(
+			&device
+			render-pass
+			swapchain-stuff.swapchain-extent
+			ubo-layout
+		) -> (graphics-pipeline, pipeline-layout)
+		command-pool := share..create-command-pool(&device, &queue-family)
+		share..create-depth-resources(
+			&instance
+			&device
+			physical-device
+			command-pool
+			graphics-queue
+			swapchain-stuff.swapchain-extent
+			&physical-device-memory-properties
+			vk..Sample-count-flags..type-1--c
+		) -> (depth-image, depth-image-view, depth-image-memory)
+		swapchain-framebuffers := App..create-framebuffers(
+			&device
+			render-pass
+			&swapchain-imageviews
+			depth-image-view
+			swapchain-stuff.swapchain-extent
+		)
+		App..load-model(&Path..new(model-path--c)) -> (vertices, indices)
+		share..create-texture-image(
+			&device
+			command-pool
+			graphics-queue
+			&physical-device-memory-properties
+			&Path..new(texture-path--c)
+		) -> (texture-image, texture-image-memory)
+		texture-image-view := share..create-texture-image-view(&device, texture-image, 1)
+		texture-sampler := share..create-texture-sampler(&device)
+		share..create-vertex-buffer(
+			&device
+			&physical-device-memory-properties
+			command-pool
+			graphics-queue
+			&vertices
+		) -> (vertex-buffer, vertex-buffer-memory)
+		share..create-index-buffer(
+			&device
+			&physical-device-memory-properties
+			command-pool
+			graphics-queue
+			&indices
+		) -> (index-buffer, index-buffer-memory)
+		share..create-uniform-buffers(
+			&device
+			&physical-device-memory-properties
+			swapchain-stuff.swapchain-images.len()
+		) -> (uniform-buffers, uniform-buffers-memory)
+		descriptor-pool := share..create-descriptor-pool(&device, swapchain-stuff.swapchain-images.len())
+		descriptor-sets := share..create-descriptor-sets(
+			&device
+			descriptor-pool
+			ubo-layout
+			&uniform-buffers
+			texture-image-view
+			texture-sampler
+			swapchain-stuff.swapchain-images.len()
+		)
+		command-buffers := App..create-command-buffers(
+			&device
+			command-pool
+			graphics-pipeline
+			&swapchain-framebuffers
+			render-pass
+			swapchain-stuff.swapchain-extent
+			vertex-buffer
+			index-buffer
+			pipeline-layout
+			&descriptor-sets
+			indices.len() as u32
+		)
+		sync-objects := share..create-sync-objects(&device, util..max-frames-in-flight--c)
+
+		ret App {
+			// winit stuff
+			window
+
+			// vulkan stuff
+			-entry: entry
+			instance
+			surface:        surface-stuff.surface
+			surface-loader: surface-stuff.surface-loader
+			debug-utils-loader
+			debug-messenger
+
+			physical-device
+			memory-properties: physical-device-memory-properties
+			device
+
+			queue-family
+			graphics-queue
+			present-queue
+
+			swapchain-loader: swapchain-stuff.swapchain-loader
+			swapchain:        swapchain-stuff.swapchain
+			swapchain-format: swapchain-stuff.swapchain-format
+			swapchain-images: swapchain-stuff.swapchain-images
+			swapchain-extent: swapchain-stuff.swapchain-extent
+			swapchain-imageviews
+			swapchain-framebuffers
+
+			pipeline-layout
+			ubo-layout
+			render-pass
+			graphics-pipeline
+
+			depth-image
+			depth-image-view
+			depth-image-memory
+
+			texture-image
+			texture-image-view
+			texture-sampler
+			texture-image-memory
+
+			-vertices: vertices
+			indices
+
+			vertex-buffer
+			vertex-buffer-memory
+			index-buffer
+			index-buffer-memory
+
+			uniform-transform: util..Uniform-buffer-object {
+				model: Matrix4..from-angle-z(Deg(90.0))
+				view: Matrix4..look-at(
+					Point3..new(2.0, 2.0, 2.0)
+					Point3..new(0.0, 0.0, 0.0)
+					Vector3..new(0.0, 0.0, 1.0)
+				)
+				proj: {
+					proj := cgmath..perspective(
+						Deg(45.0)
+						swapchain-stuff.swapchain-extent.width as f32 /
+							swapchain-stuff.swapchain-extent.height as f32
+						0.1
+						10.0
+					)
+					proj{{1}}{{1}} = proj{{1}}{{1}} * ~1.0
+					< proj
+				}
+			}
+			uniform-buffers
+			uniform-buffers-memory
+
+			descriptor-pool
+			descriptor-sets
+
+			command-pool
+			command-buffers
+
+			image-available-semaphores: sync-objects.image-available-semaphores
+			render-finished-semaphores: sync-objects.render-finished-semaphores
+			in-flight-fences:           sync-objects.inflight-fences
+			current-frame:              0
+
+			is-framebuffer-resized: false
+		}
+	}
+
+	load-model func(model-path &Path) (Vec[Vertex-v3], Vec[u32]) {
+		model-obj := tobj..load-obj(model-path).expect("Failed to load model object")
+
+		vertices := vec,,()
+		indices := vec,,()
+
+		model-obj -> (models, -)
+		for m in models.iter() {
+			mesh := &m.mesh
+
+			if mesh.texcoords.is-empty() {
+				panic,,("Missing texture coordinate for the model")
+			}
+
+			total-vertices-count := mesh.positions.len() / 3
+			for i in 0``total-vertices-count {
+				vertex := Vertex-v3 {
+					pos: {{
+						mesh.positions{{i * 3}}
+						mesh.positions{{i * 3 + 1}}
+						mesh.positions{{i * 3 + 2}}
+						1.0
+					}}
+					color:     {{ 1.0, 1.0, 1.0, 1.0 }}
+					tex-coord: {{ mesh.texcoords{{i * 2}}, mesh.texcoords{{i * 2 + 1}} }}
+				}
+				vertices.push(vertex)
+			}
+
+			indices = mesh.indices.clone()
+		}
+
+		ret (vertices, indices)
+	}
+
+	create-render-pass func(
+		instance        &ash..Instance
+		device          &ash..Device
+		physical-device vk..Physical-device
+		surface-format  vk..Format
+	) vk..Render-pass {
+		color-attachment := vk..Attachment-description {
+			flags:            vk..Attachment-description-flags..empty()
+			format:           surface-format
+			samples:          vk..Sample-count-flags..type-1--c
+			load-op:          vk..Attachment-load-op..clear--c
+			store-op:         vk..Attachment-store-op..store--c
+			stencil-load-op:  vk..Attachment-load-op..dont-care--c
+			stencil-store-op: vk..Attachment-store-op..dont-care--c
+			initial-layout:   vk..Image-layout..undefined--c
+			final-layout:     vk..Image-layout..present-src-khr--c
+		}
+
+		depth-attachment := vk..Attachment-description {
+			flags:            vk..Attachment-description-flags..empty()
+			format:           share..find-depth-format(instance, physical-device)
+			samples:          vk..Sample-count-flags..type-1--c
+			load-op:          vk..Attachment-load-op..clear--c
+			store-op:         vk..Attachment-store-op..dont-care--c
+			stencil-load-op:  vk..Attachment-load-op..dont-care--c
+			stencil-store-op: vk..Attachment-store-op..dont-care--c
+			initial-layout:   vk..Image-layout..undefined--c
+			final-layout:     vk..Image-layout..depth-stencil-attachment-optimal--c
+		}
+
+		color-attachment-ref := vk..Attachment-reference {
+			attachment: 0
+			layout:     vk..Image-layout..color-attachment-optimal--c
+		}
+		depth-attachment-ref := vk..Attachment-reference {
+			attachment: 1
+			layout:     vk..Image-layout..depth-stencil-attachment-optimal--c
+		}
+
+		subpasses := {{
+			vk..Subpass-description {
+				color-attachment-count:     1
+				p-color-attachments:        &color-attachment-ref
+				p-depth-stencil-attachment: &depth-attachment-ref
+				flags:                      vk..Subpass-description-flags..empty()
+				pipeline-bind-point:        vk..Pipeline-bind-point..graphics--c
+				input-attachment-count:     0
+				p-input-attachments:        ptr..null()
+				p-resolve-attachments:      ptr..null()
+				preserve-attachment-count:  0
+				p-preserve-attachments:     ptr..null()
+			}
+		}}
+
+		render-pass-attachments := {{ color-attachment, depth-attachment }}
+
+		subpass-dependencies := {{
+			vk..Subpass-dependency {
+				src-subpass:     vk..subpass-external--c
+				dst-subpass:     0
+				src-stage-mask:  vk..Pipeline-stage-flags..color-attachment-output--c
+				dst-stage-mask:  vk..Pipeline-stage-flags..color-attachment-output--c
+				src-access-mask: vk..Access-flags..empty()
+				dst-access-mask: vk..Access-flags..color-attachment-read--c |
+					vk..Access-flags..color-attachment-write--c
+				dependency-flags: vk..Dependency-flags..empty()
+			}
+		}}
+
+		renderpass-ci := vk..Render-pass-create-info {
+			attachment-count: render-pass-attachments.len() as u32
+			p-attachments:    render-pass-attachments.as-ptr()
+			subpass-count:    subpasses.len() as u32
+			p-subpasses:      subpasses.as-ptr()
+			dependency-count: subpass-dependencies.len() as u32
+			p-dependencies:   subpass-dependencies.as-ptr()
+			...
+		}
+
+		ret unsafe {
+			< device
+				.create-render-pass(&renderpass-ci, None)
+				.expect("Fail to create render pass")
+		}
+	}
+
+	create-framebuffers func(
+		device           &ash..Device
+		render-pass      vk..Render-pass
+		image-views      &Vec[vk..Image-view]
+		depth-image-view vk..Image-view
+		swapchain-extent vk..Extent2-d
+	) Vec[vk..Framebuffer] {
+		framebuffers := vec,,()
+
+		for &image-view in image-views.iter() {
+			attachments := {{ image-view, depth-image-view }}
+
+			framebuffer-ci := vk..Framebuffer-create-info {
+				render-pass
+				attachment-count: attachments.len() as u32
+				p-attachments:    attachments.as-ptr()
+				width:            swapchain-extent.width
+				height:           swapchain-extent.height
+				layers:           1
+				...
+			}
+
+			framebuffer := unsafe {
+				< device
+					.create-framebuffer(&framebuffer-ci, None)
+					.expect("Failed to create framebuffer")
+			}
+
+			framebuffers.push(framebuffer)
+		}
+
+		ret framebuffers
+	}
+
+	create-graphics-pipeline func(
+		device           &ash..Device
+		render-pass      vk..Render-pass
+		swapchain-extent vk..Extent2-d
+		ubo-set-layout   vk..Descriptor-set-layout
+	) (vk..Pipeline, vk..Pipeline-layout) {
+		vert-shader-module := share..create-shader-module(
+			device
+			include-bytes,,(u-path,,("../../crates/hello-ash/shaders/spv/26-shader-depth.vert.spv")).to-vec()
+		)
+		frag-shader-module := share..create-shader-module(
+			device
+			include-bytes,,(u-path,,("../../crates/hello-ash/shaders/spv/26-shader-depth.frag.spv")).to-vec()
+		)
+
+		main-function-name := C-string..new("main").unwrap()
+
+		shader-stages := {{
+			vk..Pipeline-shader-stage-create-info {
+				// Vertex Shader
+				module:                vert-shader-module
+				p-name:                main-function-name.as-ptr()
+				p-specialization-info: ptr..null()
+				stage:                 vk..Shader-stage-flags..vertex--c
+				...
+			}
+			vk..Pipeline-shader-stage-create-info {
+				// Fragment Shader
+				module:                frag-shader-module
+				p-name:                main-function-name.as-ptr()
+				p-specialization-info: ptr..null()
+				stage:                 vk..Shader-stage-flags..fragment--c
+				...
+			}
+		}}
+
+		binding-description := Vertex-v3..get-binding-descriptions()
+		attribute-description := Vertex-v3..get-attribute-descriptions()
+
+		vertex-input-state-create-info := vk..Pipeline-vertex-input-state-create-info {
+			vertex-attribute-description-count: attribute-description.len() as u32
+			p-vertex-attribute-descriptions:    attribute-description.as-ptr()
+			vertex-binding-description-count:   binding-description.len() as u32
+			p-vertex-binding-descriptions:      binding-description.as-ptr()
+			...
+		}
+		vertex-input-assembly-state-info := vk..Pipeline-input-assembly-state-create-info {
+			primitive-restart-enable: vk..false--c
+			topology:                 vk..Primitive-topology..triangle-list--c
+			...
+		}
+
+		viewports := {{
+			vk..Viewport {
+				x:         0.0
+				y:         0.0
+				width:     swapchain-extent.width as f32
+				height:    swapchain-extent.height as f32
+				min-depth: 0.0
+				max-depth: 1.0
+			}
+		}}
+
+		scissors := {{
+			vk..Rect2-d {
+				offset: vk..Offset2-d { x: 0, y: 0 }
+				extent: swapchain-extent
+			}
+		}}
+
+		viewport-state-create-info := vk..Pipeline-viewport-state-create-info {
+			scissor-count:  scissors.len() as u32
+			p-scissors:     scissors.as-ptr()
+			viewport-count: viewports.len() as u32
+			p-viewports:    viewports.as-ptr()
+			...
+		}
+
+		rasterization-statue-create-info := vk..Pipeline-rasterization-state-create-info {
+			depth-clamp-enable:         vk..false--c
+			cull-mode:                  vk..Cull-mode-flags..back--c
+			front-face:                 vk..Front-face..counter-clockwise--c
+			line-width:                 1.0
+			polygon-mode:               vk..Polygon-mode..fill--c
+			rasterizer-discard-enable:  vk..false--c
+			depth-bias-clamp:           0.0
+			depth-bias-constant-factor: 0.0
+			depth-bias-enable:          vk..false--c
+			depth-bias-slope-factor:    0.0
+			...
+		}
+
+		multisample-state-create-info := vk..Pipeline-multisample-state-create-info {
+			rasterization-samples:    vk..Sample-count-flags..type-1--c
+			sample-shading-enable:    vk..false--c
+			min-sample-shading:       0.0
+			p-sample-mask:            ptr..null()
+			alpha-to-one-enable:      vk..false--c
+			alpha-to-coverage-enable: vk..false--c
+			...
+		}
+
+		stencil-state := vk..Stencil-op-state {
+			fail-op:       vk..Stencil-op..keep--c
+			pass-op:       vk..Stencil-op..keep--c
+			depth-fail-op: vk..Stencil-op..keep--c
+			compare-op:    vk..Compare-op..always--c
+			compare-mask:  0
+			write-mask:    0
+			reference:     0
+		}
+
+		depth-state-create-info := vk..Pipeline-depth-stencil-state-create-info {
+			depth-test-enable:        vk..true--c
+			depth-write-enable:       vk..true--c
+			depth-compare-op:         vk..Compare-op..less--c
+			depth-bounds-test-enable: vk..false--c
+			stencil-test-enable:      vk..false--c
+			front:                    stencil-state
+			back:                     stencil-state
+			max-depth-bounds:         1.0
+			min-depth-bounds:         0.0
+			...
+		}
+
+		color-blend-attachment-states := {{
+			vk..Pipeline-color-blend-attachment-state {
+				blend-enable:           vk..false--c
+				color-write-mask:       vk..Color-component-flags..all()
+				src-color-blend-factor: vk..Blend-factor..one--c
+				dst-color-blend-factor: vk..Blend-factor..zero--c
+				color-blend-op:         vk..Blend-op..add--c
+				src-alpha-blend-factor: vk..Blend-factor..one--c
+				dst-alpha-blend-factor: vk..Blend-factor..zero--c
+				alpha-blend-op:         vk..Blend-op..add--c
+			}
+		}}
+
+		color-blend-state := vk..Pipeline-color-blend-state-create-info {
+			logic-op-enable:  vk..false--c
+			logic-op:         vk..Logic-op..copy--c
+			attachment-count: color-blend-attachment-states.len() as u32
+			p-attachments:    color-blend-attachment-states.as-ptr()
+			blend-constants:  {{0.0, 0.0, 0.0, 0.0}}
+			...
+		}
+
+		set-layouts := {{ubo-set-layout}}
+
+		pipeline-layout-create-info := vk..Pipeline-layout-create-info {
+			set-layout-count:          set-layouts.len() as u32
+			p-set-layouts:             set-layouts.as-ptr()
+			push-constant-range-count: 0
+			p-push-constant-ranges:    ptr..null()
+			...
+		}
+
+		pipeline-layout := unsafe {
+			< device
+				.create-pipeline-layout(&pipeline-layout-create-info, None)
+				.expect("Failed to create pipeline layout!")
+		}
+
+		graphic-pipeline-create-infos := {{
+			vk..Graphics-pipeline-create-info {
+				stage-count:            shader-stages.len() as u32
+				p-stages:               shader-stages.as-ptr()
+				p-vertex-input-state:   &vertex-input-state-create-info
+				p-input-assembly-state: &vertex-input-assembly-state-info
+				p-tessellation-state:   ptr..null()
+				p-viewport-state:       &viewport-state-create-info
+				p-rasterization-state:  &rasterization-statue-create-info
+				p-multisample-state:    &multisample-state-create-info
+				p-depth-stencil-state:  &depth-state-create-info
+				p-color-blend-state:    &color-blend-state
+				p-dynamic-state:        ptr..null()
+				layout:                 pipeline-layout
+				render-pass
+				subpass:              0
+				base-pipeline-handle: vk..Pipeline..null()
+				base-pipeline-index:  ~1
+				...
+			}
+		}}
+
+		graphics-pipelines := unsafe {
+			< device
+				.create-graphics-pipelines(
+					vk..Pipeline-cache..null()
+					&graphic-pipeline-create-infos
+					None
+				)
+				.expect("Failed to create Graphics Pipeline!.")
+		}
+
+		unsafe {
+			device.destroy-shader-module(vert-shader-module, None)
+			device.destroy-shader-module(frag-shader-module, None)
+		}
+
+		ret (graphics-pipelines{{0}}, pipeline-layout)
+	}
+
+	create-command-buffers func(
+		device            &ash..Device
+		command-pool      vk..Command-pool
+		graphics-pipeline vk..Pipeline
+		framebuffers      &Vec[vk..Framebuffer]
+		render-pass       vk..Render-pass
+		surface-extent    vk..Extent2-d
+		vertex-buffer     vk..Buffer
+		index-buffer      vk..Buffer
+		pipeline-layout   vk..Pipeline-layout
+		descriptor-sets   &Vec[vk..Descriptor-set]
+		index-count       u32
+	) Vec[vk..Command-buffer] {
+		command-buffer-allocate-info := vk..Command-buffer-allocate-info {
+			command-buffer-count: framebuffers.len() as u32
+			level:                vk..Command-buffer-level..primary--c
+			command-pool
+			...
+		}
+
+		command-buffers := unsafe {
+			< device
+				.allocate-command-buffers(&command-buffer-allocate-info)
+				.expect("Failed to allocate Command Buffers!")
+		}
+
+		for (i, &command-buffer) in command-buffers.iter().enumerate() {
+			command-buffer-begin-info := vk..Command-buffer-begin-info {
+				p-inheritance-info: ptr..null()
+				flags:              vk..Command-buffer-usage-flags..simultaneous-use--c
+				...
+			}
+
+			unsafe {
+				< device
+					.begin-command-buffer(command-buffer, &command-buffer-begin-info)
+					.expect("Failed to begin recording Command Buffer at beginning!")
+			}
+
+			clear-values := {{
+				vk..Clear-value {
+					// clear value for color buffer
+					color: vk..Clear-color-value {
+						float32: {{0.0, 0.0, 0.0, 1.0}}
+					}
+				}
+				vk..Clear-value {
+					// clear value for depth buffer
+					depth-stencil: vk..Clear-depth-stencil-value {
+						depth:   1.0
+						stencil: 0
+					}
+				}
+			}}
+
+			render-pass-begin-info := vk..Render-pass-begin-info {
+				render-pass
+				framebuffer: framebuffers{{i}}
+				render-area: vk..Rect2-d {
+					offset: vk..Offset2-d { x: 0, y: 0 }
+					extent: surface-extent
+				}
+				clear-value-count: clear-values.len() as u32
+				p-clear-values:    clear-values.as-ptr()
+				...
+			}
+
+			unsafe {
+				device.cmd-begin-render-pass(
+					command-buffer
+					&render-pass-begin-info
+					vk..Subpass-contents..inline--c
+				)
+				device.cmd-bind-pipeline(
+					command-buffer
+					vk..Pipeline-bind-point..graphics--c
+					graphics-pipeline
+				)
+
+				vertex-buffers := {{vertex-buffer}}
+				offsets := {{0}}
+				descriptor-sets-to-bind := {{descriptor-sets{{i}}}}
+
+				device.cmd-bind-vertex-buffers(command-buffer, 0, &vertex-buffers, &offsets)
+				device.cmd-bind-index-buffer(
+					command-buffer
+					index-buffer
+					0
+					vk..Index-type..uint32--c
+				)
+				device.cmd-bind-descriptor-sets(
+					command-buffer
+					vk..Pipeline-bind-point..graphics--c
+					pipeline-layout
+					0
+					&descriptor-sets-to-bind
+					&{{}}
+				)
+
+				device.cmd-draw-indexed(command-buffer, index-count, 1, 0, 0, 0)
+
+				device.cmd-end-render-pass(command-buffer)
+
+				device
+					.end-command-buffer(command-buffer)
+					.expect("Failed to record Command Buffer at Ending!")
+			}
+		}
+
+		ret command-buffers
+	}
+
+	update-uniform-buffer (&mut) func(current-image usize, delta-time f32) {
+		s.uniform-transform.model =
+			Matrix4..from-axis-angle(Vector3..new(0.0, 0.0, 1.0), Deg(90.0) * delta-time) *
+				s.uniform-transform.model
+
+		ubos := {{s.uniform-transform.clone()}}
+
+		buffer-size := (std..mem..size-of[util..Uniform-buffer-object]() * ubos.len()) as u64
+
+		unsafe {
+			data-ptr := s.device
+				.map-memory(
+					s.uniform-buffers-memory{{current-image}}
+					0
+					buffer-size
+					vk..Memory-map-flags..empty()
+				)
+				.expect("Failed to Map Memory") as *mut util..Uniform-buffer-object
+
+			data-ptr.copy-from-nonoverlapping(ubos.as-ptr(), ubos.len())
+
+			s.device.unmap-memory(s.uniform-buffers-memory{{current-image}})
+		}
+	}
+}
+
+App impl Drop {
+	drop (&mut) func() {
+		unsafe {
+			for i in 0``util..max-frames-in-flight--c {
+				s.device.destroy-semaphore(s.image-available-semaphores{{i}}, None)
+				s.device.destroy-semaphore(s.render-finished-semaphores{{i}}, None)
+				s.device.destroy-fence(s.in-flight-fences{{i}}, None)
+			}
+
+			s.cleanup-swapchain()
+
+			s.device.destroy-descriptor-pool(s.descriptor-pool, None)
+
+			for i in 0``s.uniform-buffers.len() {
+				s.device.destroy-buffer(s.uniform-buffers{{i}}, None)
+				s.device.free-memory(s.uniform-buffers-memory{{i}}, None)
+			}
+
+			s.device.destroy-buffer(s.index-buffer, None)
+			s.device.free-memory(s.index-buffer-memory, None)
+
+			s.device.destroy-buffer(s.vertex-buffer, None)
+			s.device.free-memory(s.vertex-buffer-memory, None)
+
+			s.device.destroy-sampler(s.texture-sampler, None)
+			s.device.destroy-image-view(s.texture-image-view, None)
+
+			s.device.destroy-image(s.texture-image, None)
+			s.device.free-memory(s.texture-image-memory, None)
+
+			s.device.destroy-descriptor-set-layout(s.ubo-layout, None)
+
+			s.device.destroy-command-pool(s.command-pool, None)
+
+			s.device.destroy-device(None)
+			s.surface-loader.destroy-surface(s.surface, None)
+
+			if util..validation--c.is-enable {
+				s.debug-utils-loader.destroy-debug-utils-messenger(s.debug-messenger, None)
+			}
+			s.instance.destroy-instance(None)
+		}
+	}
+}
+
+App impl util..Vulkan-app {
+	draw-frame (&mut) func(delta-time f32) {
+		wait-fences := {{s.in-flight-fences{{s.current-frame}}}}
+
+		unsafe {
+			s.device
+				.wait-for-fences(&wait-fences, true, std..u64..max--c)
+				.expect("Failed to wait for Fence!")
+		}
+
+		unsafe {
+			result := s.swapchain-loader.acquire-next-image(
+				s.swapchain
+				std..u64..max--c
+				s.image-available-semaphores{{s.current-frame}}
+				vk..Fence..null()
+			)
+			match result {
+				Ok(image-index): image-index
+				Err(vk-result): match vk-result {
+					vk..Result..error-out-of-date-khr--c: {
+						s.recreate-swapchain()
+						ret
+					}
+					-: panic,,("Failed to acquire Swap Chain Image!")
+				}
+			}
+		} -> (image-index, -is-sub-optimal)
+
+		s.update-uniform-buffer(image-index as usize, delta-time)
+
+		wait-semaphores := {{s.image-available-semaphores{{s.current-frame}}}}
+		wait-stages := {{vk..Pipeline-stage-flags..color-attachment-output--c}}
+		signal-semaphores := {{s.render-finished-semaphores{{s.current-frame}}}}
+
+		submit-infos := {{
+			vk..Submit-info {
+				wait-semaphore-count:   wait-semaphores.len() as u32
+				p-wait-semaphores:      wait-semaphores.as-ptr()
+				p-wait-dst-stage-mask:  wait-stages.as-ptr()
+				command-buffer-count:   1
+				p-command-buffers:      &s.command-buffers{{image-index as usize}}
+				signal-semaphore-count: signal-semaphores.len() as u32
+				p-signal-semaphores:    signal-semaphores.as-ptr()
+				...
+			}
+		}}
+
+		unsafe {
+			s.device
+				.reset-fences(&wait-fences)
+				.expect("Failed to reset Fence!")
+
+			s.device
+				.queue-submit(
+					s.graphics-queue
+					&submit-infos
+					s.in-flight-fences{{s.current-frame}}
+				)
+				.expect("Failed to execute queue submit.")
+		}
+
+		swapchains := {{s.swapchain}}
+
+		present-info := vk..Present-info-k-h-r {
+			wait-semaphore-count: 1
+			p-wait-semaphores:    signal-semaphores.as-ptr()
+			swapchain-count:      1
+			p-swapchains:         swapchains.as-ptr()
+			p-image-indices:      &image-index
+			p-results:            ptr..null-mut()
+			...
+		}
+
+		result := unsafe {
+			< s.swapchain-loader
+				.queue-present(s.present-queue, &present-info)
+		}
+
+		is-resized := match result {
+			Ok(-): s.is-framebuffer-resized
+			Err(vk-result): match vk-result {
+				vk..Result..error-out-of-date-khr--c | vk..Result..suboptimal-khr--c: true
+				-: panic,,("Failed to execute queue present.")
+			}
+		}
+		if is-resized {
+			s.is-framebuffer-resized = false
+			s.recreate-swapchain()
+		}
+
+		s.current-frame = (s.current-frame + 1) % util..max-frames-in-flight--c
+	}
+
+	recreate-swapchain (&mut) func() {
+		surface-suff := util..Surface-stuff {
+			surface-loader: s.surface-loader.clone()
+			surface:        s.surface
+			screen-width:   util..window-width--c
+			screen-height:  util..window-height--c
+		}
+
+		unsafe {
+			s.device
+				.device-wait-idle()
+				.expect("Failed to wait device idle!")
+		}
+		s.cleanup-swapchain()
+
+		swapchain-stuff := share..create-swapchain(
+			&s.instance
+			&s.device
+			s.physical-device
+			&s.window
+			&surface-suff
+			&s.queue-family
+		)
+		s.swapchain-loader = swapchain-stuff.swapchain-loader
+		s.swapchain = swapchain-stuff.swapchain
+		s.swapchain-images = swapchain-stuff.swapchain-images
+		s.swapchain-format = swapchain-stuff.swapchain-format
+		s.swapchain-extent = swapchain-stuff.swapchain-extent
+
+		s.swapchain-imageviews = share..create-image-views(
+			&s.device
+			s.swapchain-format
+			&s.swapchain-images
+		)
+		s.render-pass = App..create-render-pass(
+			&s.instance
+			&s.device
+			s.physical-device
+			s.swapchain-format
+		)
+		App..create-graphics-pipeline(
+			&s.device
+			s.render-pass
+			swapchain-stuff.swapchain-extent
+			s.ubo-layout
+		) -> (graphics-pipeline, pipeline-layout)
+		s.graphics-pipeline = graphics-pipeline
+		s.pipeline-layout = pipeline-layout
+
+		depth-resources := share..create-depth-resources(
+			&s.instance
+			&s.device
+			s.physical-device
+			s.command-pool
+			s.graphics-queue
+			s.swapchain-extent
+			&s.memory-properties
+			vk..Sample-count-flags..type-1--c
+		)
+		s.depth-image = depth-resources.0
+		s.depth-image-view = depth-resources.1
+		s.depth-image-memory = depth-resources.2
+
+		s.swapchain-framebuffers = App..create-framebuffers(
+			&s.device
+			s.render-pass
+			&s.swapchain-imageviews
+			s.depth-image-view
+			s.swapchain-extent
+		)
+		s.command-buffers = App..create-command-buffers(
+			&s.device
+			s.command-pool
+			s.graphics-pipeline
+			&s.swapchain-framebuffers
+			s.render-pass
+			s.swapchain-extent
+			s.vertex-buffer
+			s.index-buffer
+			s.pipeline-layout
+			&s.descriptor-sets
+			s.indices.len() as u32
+		)
+	}
+
+	cleanup-swapchain (&) func() {
+		unsafe {
+			s.device.destroy-image-view(s.depth-image-view, None)
+			s.device.destroy-image(s.depth-image, None)
+			s.device.free-memory(s.depth-image-memory, None)
+
+			s.device.free-command-buffers(s.command-pool, &s.command-buffers)
+			for &framebuffer in s.swapchain-framebuffers.iter() {
+				s.device.destroy-framebuffer(framebuffer, None)
+			}
+			s.device.destroy-pipeline(s.graphics-pipeline, None)
+			s.device.destroy-pipeline-layout(s.pipeline-layout, None)
+			s.device.destroy-render-pass(s.render-pass, None)
+			for &image-view in s.swapchain-imageviews.iter() {
+				s.device.destroy-image-view(image-view, None)
+			}
+			s.swapchain-loader.destroy-swapchain(s.swapchain, None)
+		}
+	}
+
+	wait-device-idle (&) func() {
+		unsafe {
+			s.device
+				.device-wait-idle()
+				.expect("Failed to wait device idle")
+		}
+	}
+
+	resize-framebuffer (&mut) func() {
+		s.is-framebuffer-resized = true
+	}
+
+	window-ref (&) func() &winit..window..Window {
+		ret &s.window
+	}
+}

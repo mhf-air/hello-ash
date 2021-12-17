@@ -1,0 +1,1194 @@
+import {
+	ash..version..DeviceV1-0--r
+	ash..vk
+	image..Generic-image-view
+
+	std {
+		cmp..max
+		ffi..C-string
+		path..Path
+		ptr
+	}
+}
+
+create-render-pass+ func(device &ash..Device, surface-format vk..Format) vk..Render-pass {
+	color-attachment := vk..Attachment-description {
+		format:           surface-format
+		flags:            vk..Attachment-description-flags..empty()
+		samples:          vk..Sample-count-flags..type-1--c
+		load-op:          vk..Attachment-load-op..clear--c
+		store-op:         vk..Attachment-store-op..store--c
+		stencil-load-op:  vk..Attachment-load-op..dont-care--c
+		stencil-store-op: vk..Attachment-store-op..dont-care--c
+		initial-layout:   vk..Image-layout..undefined--c
+		final-layout:     vk..Image-layout..present-src-khr--c
+	}
+
+	color-attachment-ref := vk..Attachment-reference {
+		attachment: 0
+		layout:     vk..Image-layout..color-attachment-optimal--c
+	}
+
+	subpasses := {{
+		vk..Subpass-description {
+			color-attachment-count:     1
+			p-color-attachments:        &color-attachment-ref
+			p-depth-stencil-attachment: ptr..null()
+			flags:                      vk..Subpass-description-flags..empty()
+			pipeline-bind-point:        vk..Pipeline-bind-point..graphics--c
+			input-attachment-count:     0
+			p-input-attachments:        ptr..null()
+			p-resolve-attachments:      ptr..null()
+			preserve-attachment-count:  0
+			p-preserve-attachments:     ptr..null()
+		}
+	}}
+
+	render-pass-attachments := {{ color-attachment }}
+
+	subpass-dependencies := {{
+		vk..Subpass-dependency {
+			src-subpass:      vk..subpass-external--c
+			dst-subpass:      0
+			src-stage-mask:   vk..Pipeline-stage-flags..color-attachment-output--c
+			dst-stage-mask:   vk..Pipeline-stage-flags..color-attachment-output--c
+			src-access-mask:  vk..Access-flags..empty()
+			dst-access-mask:  vk..Access-flags..color-attachment-write--c
+			dependency-flags: vk..Dependency-flags..empty()
+		}
+	}}
+
+	renderpass-create-info := vk..Render-pass-create-info {
+		attachment-count: render-pass-attachments.len() as u32
+		p-attachments:    render-pass-attachments.as-ptr()
+		subpass-count:    subpasses.len() as u32
+		p-subpasses:      subpasses.as-ptr()
+		dependency-count: subpass-dependencies.len() as u32
+		p-dependencies:   subpass-dependencies.as-ptr()
+		...
+	}
+
+	ret unsafe {
+		< device
+			.create-render-pass(&renderpass-create-info, None)
+			.expect("Failed to create render pass")
+	}
+}
+
+create-graphics-pipeline+ func(
+	device           &ash..Device
+	render-pass      vk..Render-pass
+	swapchain-extent vk..Extent2-d
+) (vk..Pipeline, vk..Pipeline-layout) {
+	vert-shader-module := create-shader-module(
+		device,
+		include-bytes,,(u-path,,("../../../../crates/hello-ash/shaders/spv/09-shader-base.vert.spv")).to-vec(),
+	)
+	frag-shader-module := create-shader-module(
+		device,
+		include-bytes,,(u-path,,("../../../../crates/hello-ash/shaders/spv/09-shader-base.frag.spv")).to-vec(),
+	)
+
+	main-function-name := C-string..new("main").unwrap()
+
+	shader-stages := {{
+		vk..Pipeline-shader-stage-create-info {
+			module:                vert-shader-module
+			p-name:                main-function-name.as-ptr()
+			p-specialization-info: ptr..null()
+			stage:                 vk..Shader-stage-flags..vertex--c
+			...
+		}
+		vk..Pipeline-shader-stage-create-info {
+			module:                frag-shader-module
+			p-name:                main-function-name.as-ptr()
+			p-specialization-info: ptr..null()
+			stage:                 vk..Shader-stage-flags..fragment--c
+			...
+		}
+	}}
+
+	vertex-input-state-create-info := vk..Pipeline-vertex-input-state-create-info {
+		vertex-attribute-description-count: 0
+		p-vertex-attribute-descriptions:    ptr..null()
+		vertex-binding-description-count:   0
+		p-vertex-binding-descriptions:      ptr..null()
+		...
+	}
+	vertex-input-assembly-state-info := vk..Pipeline-input-assembly-state-create-info {
+		primitive-restart-enable: vk..false--c
+		topology:                 vk..Primitive-topology..triangle-list--c
+		...
+	}
+
+	viewports := {{
+		vk..Viewport {
+			x:         0.0
+			y:         0.0
+			width:     swapchain-extent.width as f32
+			height:    swapchain-extent.height as f32
+			min-depth: 0.0
+			max-depth: 1.0
+		}
+	}}
+
+	scissors := {{
+		vk..Rect2-d {
+			offset: vk..Offset2-d { x: 0, y: 0 }
+			extent: swapchain-extent
+		}
+	}}
+
+	viewport-state-create-info := vk..Pipeline-viewport-state-create-info {
+		scissor-count:  scissors.len() as u32
+		p-scissors:     scissors.as-ptr()
+		viewport-count: viewports.len() as u32
+		p-viewports:    viewports.as-ptr()
+		...
+	}
+
+	rasterization-state-create-info := vk..Pipeline-rasterization-state-create-info {
+		depth-clamp-enable:         vk..false--c
+		cull-mode:                  vk..Cull-mode-flags..back--c
+		front-face:                 vk..Front-face..clockwise--c
+		line-width:                 1.0
+		polygon-mode:               vk..Polygon-mode..fill--c
+		rasterizer-discard-enable:  vk..false--c
+		depth-bias-clamp:           0.0
+		depth-bias-constant-factor: 0.0
+		depth-bias-enable:          vk..false--c
+		depth-bias-slope-factor:    0.0
+		...
+	}
+
+	multisample-state-create-info := vk..Pipeline-multisample-state-create-info {
+		rasterization-samples:    vk..Sample-count-flags..type-1--c
+		sample-shading-enable:    vk..false--c
+		min-sample-shading:       0.0
+		p-sample-mask:            ptr..null()
+		alpha-to-one-enable:      vk..false--c
+		alpha-to-coverage-enable: vk..false--c
+		...
+	}
+
+	stencil-state := vk..Stencil-op-state {
+		fail-op:       vk..Stencil-op..keep--c
+		pass-op:       vk..Stencil-op..keep--c
+		depth-fail-op: vk..Stencil-op..keep--c
+		compare-op:    vk..Compare-op..always--c
+		compare-mask:  0
+		write-mask:    0
+		reference:     0
+	}
+
+	depth-state-create-info := vk..Pipeline-depth-stencil-state-create-info {
+		depth-test-enable:        vk..false--c
+		depth-write-enable:       vk..false--c
+		depth-compare-op:         vk..Compare-op..less-or-equal--c
+		depth-bounds-test-enable: vk..false--c
+		stencil-test-enable:      vk..false--c
+		front:                    stencil-state
+		back:                     stencil-state
+		max-depth-bounds:         1.0
+		min-depth-bounds:         0.0
+		...
+	}
+
+	color-blend-attachment-states := {{
+		vk..Pipeline-color-blend-attachment-state {
+			blend-enable:           vk..false--c
+			color-write-mask:       vk..Color-component-flags..all()
+			src-color-blend-factor: vk..Blend-factor..one--c
+			dst-color-blend-factor: vk..Blend-factor..zero--c
+			color-blend-op:         vk..Blend-op..add--c
+			src-alpha-blend-factor: vk..Blend-factor..one--c
+			dst-alpha-blend-factor: vk..Blend-factor..zero--c
+			alpha-blend-op:         vk..Blend-op..add--c
+		}
+	}}
+
+	color-blend-state := vk..Pipeline-color-blend-state-create-info {
+		logic-op-enable:  vk..false--c
+		logic-op:         vk..Logic-op..copy--c
+		attachment-count: color-blend-attachment-states.len() as u32
+		p-attachments:    color-blend-attachment-states.as-ptr()
+		blend-constants:  {{ 0.0, 0.0, 0.0, 0.0 }}
+		...
+	}
+
+	pipeline-layout-create-info := vk..Pipeline-layout-create-info {
+		set-layout-count:          0
+		p-set-layouts:             ptr..null()
+		push-constant-range-count: 0
+		p-push-constant-ranges:    ptr..null()
+		...
+	}
+
+	pipeline-layout := unsafe {
+		< device
+			.create-pipeline-layout(&pipeline-layout-create-info, None)
+			.expect("Failed to create pipeline layout")
+	}
+
+	graphic-pipeline-create-infos := {{
+		vk..Graphics-pipeline-create-info {
+			stage-count:            shader-stages.len() as u32
+			p-stages:               shader-stages.as-ptr()
+			p-vertex-input-state:   &vertex-input-state-create-info
+			p-input-assembly-state: &vertex-input-assembly-state-info
+			p-tessellation-state:   ptr..null()
+			p-viewport-state:       &viewport-state-create-info
+			p-rasterization-state:  &rasterization-state-create-info
+			p-multisample-state:    &multisample-state-create-info
+			p-depth-stencil-state:  &depth-state-create-info
+			p-color-blend-state:    &color-blend-state
+			p-dynamic-state:        ptr..null()
+			layout:                 pipeline-layout
+			render-pass
+			subpass:              0
+			base-pipeline-handle: vk..Pipeline..null()
+			base-pipeline-index:  ~1
+			...
+		}
+	}}
+
+	graphics-pipelines := unsafe {
+		< device
+			.create-graphics-pipelines(
+				vk..Pipeline-cache..null()
+				&graphic-pipeline-create-infos
+				None
+			)
+			.expect("Failed to create graphics pipeline")
+	}
+
+	unsafe {
+		device.destroy-shader-module(vert-shader-module, None)
+		device.destroy-shader-module(frag-shader-module, None)
+	}
+
+	ret (graphics-pipelines{{0}}, pipeline-layout)
+}
+
+create-framebuffers+ func(
+	device           &ash..Device
+	render-pass      vk..Render-pass
+	image-views      &Vec[vk..Image-view]
+	swapchain-extent vk..Extent2-d
+) Vec[vk..Framebuffer] {
+	framebuffers := vec,,()
+
+	for &image-view in image-views.iter() {
+		attachments := {{ image-view }}
+
+		ci := vk..Framebuffer-create-info {
+			render-pass
+			attachment-count: attachments.len() as u32
+			p-attachments:    attachments.as-ptr()
+			width:            swapchain-extent.width
+			height:           swapchain-extent.height
+			layers:           1
+			...
+		}
+
+		framebuffer := unsafe {
+			< device
+				.create-framebuffer(&ci, None)
+				.expect("Failed to create framebuffer")
+		}
+
+		framebuffers.push(framebuffer)
+	}
+
+	< framebuffers
+}
+
+create-command-pool+ func(
+	device         &ash..Device
+	queue-families &crate..Queue-family-indices
+) vk..Command-pool {
+	ci := vk..Command-pool-create-info {
+		queue-family-index: queue-families.graphics-family.unwrap()
+		...
+	}
+
+	ret unsafe {
+		< device
+			.create-command-pool(&ci, None)
+			.expect("Failed to create command pool")
+	}
+}
+
+create-command-buffers+ func(
+	device            &ash..Device
+	command-pool      vk..Command-pool
+	graphics-pipeline vk..Pipeline
+	framebuffers      &Vec[vk..Framebuffer]
+	render-pass       vk..Render-pass
+	surface-extent    vk..Extent2-d
+) Vec[vk..Command-buffer]  {
+	ai := vk..Command-buffer-allocate-info {
+		command-buffer-count: framebuffers.len() as u32
+		command-pool
+		level: vk..Command-buffer-level..primary--c
+		...
+	}
+
+	buffers := unsafe {
+		< device
+			.allocate-command-buffers(&ai)
+			.expect("Failed to allocate command buffers")
+	}
+
+	for (i, &command-buffer) in buffers.iter().enumerate() {
+		command-buffer-bi := vk..Command-buffer-begin-info {
+			p-inheritance-info: ptr..null()
+			flags:              vk..Command-buffer-usage-flags..simultaneous-use--c
+			...
+		}
+
+		unsafe {
+			device
+				.begin-command-buffer(command-buffer, &command-buffer-bi)
+				.expect("Failed to begin recording command buffer")
+		}
+
+		clear-values := {{
+			vk..Clear-value {
+				color: vk..Clear-color-value {
+					float32: {{ 0.0, 0.0, 0.0, 1.0 }}
+				}
+			}
+		}}
+
+		render-pass-bi := vk..Render-pass-begin-info {
+			framebuffer: framebuffers{{i}}
+			render-area: vk..Rect2-d {
+				offset: vk..Offset2-d { x: 0, y: 0 }
+				extent: surface-extent
+			}
+			clear-value-count: clear-values.len() as u32
+			p-clear-values:    clear-values.as-ptr()
+			render-pass
+			...
+		}
+
+		unsafe {
+			device.cmd-begin-render-pass(
+				command-buffer
+				&render-pass-bi
+				vk..Subpass-contents..inline--c
+			)
+			device.cmd-bind-pipeline(
+				command-buffer
+				vk..Pipeline-bind-point..graphics--c
+				graphics-pipeline
+			)
+			device.cmd-draw(command-buffer, 3, 1, 0, 0)
+
+			device.cmd-end-render-pass(command-buffer)
+
+			device
+				.end-command-buffer(command-buffer)
+				.expect("Failed to record command buffer at ending")
+		}
+	}
+
+	ret buffers
+}
+
+create-sync-objects+ func(device &ash..Device, max-frame-in-flight usize) crate..Sync-objects {
+	sync-objects := crate..Sync-objects {
+		image-available-semaphores: vec,,()
+		render-finished-semaphores: vec,,()
+		inflight-fences:            vec,,()
+	}
+
+	semaphores-ci := vk..Semaphore-create-info {
+		...
+	}
+
+	fence-ci := vk..Fence-create-info {
+		flags: vk..Fence-create-flags..signaled--c
+		...
+	}
+
+	for - in 0``max-frame-in-flight {
+		unsafe {
+			image-available-semaphore := device
+				.create-semaphore(&semaphores-ci, None)
+				.expect("Failed to create semaphore object")
+			render-finished-semaphore := device
+				.create-semaphore(&semaphores-ci, None)
+				.expect("Failed to create semaphore object")
+			inflight-fences := device
+				.create-fence(&fence-ci, None)
+				.expect("Failed to create fence object")
+
+			sync-objects
+				.image-available-semaphores
+				.push(image-available-semaphore)
+			sync-objects
+				.render-finished-semaphores
+				.push(render-finished-semaphore)
+			sync-objects.inflight-fences.push(inflight-fences)
+		}
+	}
+
+	ret sync-objects
+}
+
+create-vertex-buffer+[T] func(
+	device                   &ash..Device
+	device-memory-properties &vk..Physical-device-memory-properties
+	command-pool             vk..Command-pool
+	submit-queue             vk..Queue
+	data                     &{{T}}
+) (vk..Buffer, vk..Device-memory) {
+	buffer-size := std..mem..size-of-val(data) as vk..Device-size
+
+	create-buffer(
+		device
+		buffer-size
+		vk..Buffer-usage-flags..transfer-src--c
+		vk..Memory-property-flags..host-visible--c | vk..Memory-property-flags..host-coherent--c
+		&device-memory-properties
+	) -> (staging-buffer, staging-buffer-memory)
+
+	unsafe {
+		data-ptr := device
+			.map-memory(
+				staging-buffer-memory
+				0
+				buffer-size
+				vk..Memory-map-flags..empty()
+			)
+			.expect("Failed to map memory") as *mut T
+
+		data-ptr.copy-from-nonoverlapping(data.as-ptr(), data.len())
+
+		device.unmap-memory(staging-buffer-memory)
+	}
+
+	create-buffer(
+		device
+		buffer-size
+		vk..Buffer-usage-flags..transfer-dst--c | vk..Buffer-usage-flags..vertex-buffer--c
+		vk..Memory-property-flags..device-local--c
+		&device-memory-properties
+	) -> (vertex-buffer, vertex-buffer-memory)
+
+	copy-buffer(
+		device
+		submit-queue
+		command-pool
+		staging-buffer
+		vertex-buffer
+		buffer-size
+	)
+
+	unsafe {
+		device.destroy-buffer(staging-buffer, None)
+		device.free-memory(staging-buffer-memory, None)
+	}
+
+	ret (vertex-buffer, vertex-buffer-memory)
+}
+
+create-index-buffer+ func(
+	device                   &ash..Device
+	device-memory-properties &vk..Physical-device-memory-properties
+	command-pool             vk..Command-pool
+	submit-queue             vk..Queue
+	data                     &{{u32}}
+) (vk..Buffer, vk..Device-memory) {
+	buffer-size := std..mem..size-of-val(data) as vk..Device-size
+
+	create-buffer(
+		device
+		buffer-size
+		vk..Buffer-usage-flags..transfer-src--c
+		vk..Memory-property-flags..host-visible--c | vk..Memory-property-flags..host-coherent--c
+		&device-memory-properties
+	) -> (staging-buffer, staging-buffer-memory)
+
+	unsafe {
+		data-ptr := device
+			.map-memory(
+				staging-buffer-memory
+				0
+				buffer-size
+				vk..Memory-map-flags..empty()
+			)
+			.expect("Failed to map memory") as *mut u32
+
+		data-ptr.copy-from-nonoverlapping(data.as-ptr(), data.len())
+
+		device.unmap-memory(staging-buffer-memory)
+	}
+
+	create-buffer(
+		device
+		buffer-size
+		vk..Buffer-usage-flags..transfer-dst--c | vk..Buffer-usage-flags..index-buffer--c
+		vk..Memory-property-flags..device-local--c
+		&device-memory-properties
+	) -> (index-buffer, index-buffer-memory)
+
+	copy-buffer(
+		device
+		submit-queue
+		command-pool
+		staging-buffer
+		index-buffer
+		buffer-size
+	)
+
+	unsafe {
+		device.destroy-buffer(staging-buffer, None)
+		device.free-memory(staging-buffer-memory, None)
+	}
+
+	ret (index-buffer, index-buffer-memory)
+}
+
+/* create-descriptor-pool+ func(
+	device                  &ash..Device
+	swapchain-images-size   usize
+) vk..Descriptor-pool {
+	pool-sizes := {{
+		vk..Descriptor-pool-size {
+			ty: vk..Descriptor-type..uniform-buffer--c
+			descriptor-count: swapchain-images-size as u32
+		}
+	}}
+
+	descriptor-pool-ci := vk..Descriptor-pool-create-info {
+		max-sets: swapchain-images-size as u32
+		pool-size-count: pool-sizes.len() as u32
+		p-pool-sizes: pool-sizes.as-ptr()
+		...
+	}
+
+	ret unsafe {
+		< device
+			.create-descriptor-pool(&descriptor-pool-ci, None)
+			.expect("Failed to create descriptor pool")
+	}
+}
+
+create-descriptor-sets+ func(
+	device                  &ash..Device
+	descriptor-pool         vk..Descriptor-pool
+	descriptor-set-layout   vk..Descriptor-set-layout
+	uniforms-buffers        &Vec[vk..Buffer]
+	swapchain-images-size   usize
+) Vec[vk..Descriptor-set] {
+	layouts := vec,,()
+	for - in 0``swapchain-images-size {
+		layouts.push(descriptor-set-layout)
+	}
+
+	descriptor-set-ai := vk..Descriptor-set-allocate-info {
+		descriptor-pool
+		descriptor-set-count:   swapchain-images-size as u32
+		p-set-layouts:          layouts.as-ptr()
+		...
+	}
+
+	descriptor-sets := unsafe {
+		< device
+			.allocate-descriptor-sets(&descriptor-set-ai)
+			.expect("Failed to allocate descriptor sets")
+	}
+
+	for (i, &descriptor-set) in descriptor-sets.iter().enumerate() {
+		descriptor-buffer-info := {{
+			vk..Descriptor-buffer-info {
+				buffer:   uniforms-buffers{{i}}
+				offset:   0
+				range:    std..mem..size-of[crate..Uniform-buffer-object]() as u64
+			}
+		}}
+
+		descriptor-write-sets := {{
+			vk..Write-descriptor-set {
+				dst-set: descriptor-set
+				dst-binding: 0
+				dst-array-element: 0
+				descriptor-count: 1
+				descriptor-type: vk..Descriptor-type..uniform-buffer--c
+				p-image-info: ptr..null()
+				p-buffer-info: descriptor-buffer-info.as-ptr()
+				p-texel-buffer-view: ptr..null()
+				...
+			}
+		}}
+
+		unsafe {
+			device.update-descriptor-sets(&descriptor-write-sets, &{{}})
+		}
+	}
+
+	ret descriptor-sets
+}
+
+create-descriptor-set-layout+ func(device &ash..Device) vk..Descriptor-set-layout {
+	ubo-layout-bindings := {{
+		vk..Descriptor-set-layout-binding {
+			binding:                0
+			descriptor-type:        vk..Descriptor-type..uniform-buffer-dynamic--c
+			descriptor-count:       1
+			stage-flags:            vk..Shader-stage-flags..vertex--c
+			p-immutable-samplers:   ptr..null()
+		}
+	}}
+
+	ubo-layout-create-info := vk..Descriptor-set-layout-create-info {
+		binding-count:   ubo-layout-bindings.len() as u32
+		p-bindings:      ubo-layout-bindings.as-ptr()
+		...
+	}
+
+	ret unsafe {
+		< device
+			.create-descriptor-set-layout(&ubo-layout-create-info, None)
+			.expect("Failed to create descriptor set layout")
+	}
+} */
+
+create-uniform-buffers+ func(
+	device                   &ash..Device
+	device-memory-properties &vk..Physical-device-memory-properties
+	swapchain-images-count   usize
+) (Vec[vk..Buffer], Vec[vk..Device-memory]) {
+	buffer-size := std..mem..size-of[crate..Uniform-buffer-object]()
+
+	uniform-buffers := vec,,()
+	uniform-buffers-memory := vec,,()
+
+	for - in 0``swapchain-images-count {
+		create-buffer(
+			device
+			buffer-size as u64
+			vk..Buffer-usage-flags..uniform-buffer--c
+			vk..Memory-property-flags..host-visible--c | vk..Memory-property-flags..host-coherent--c
+			&device-memory-properties
+		) -> (uniform-buffer, uniform-buffer-memory)
+		uniform-buffers.push(uniform-buffer)
+		uniform-buffers-memory.push(uniform-buffer-memory)
+	}
+
+	ret (uniform-buffers, uniform-buffers-memory)
+}
+
+create-image+ func(
+	device                     &ash..Device
+	width                      u32
+	height                     u32
+	mip-levels                 u32
+	num-samples                vk..Sample-count-flags
+	format                     vk..Format
+	tiling                     vk..Image-tiling
+	usage                      vk..Image-usage-flags
+	required-memory-properties vk..Memory-property-flags
+	device-memory-properties   &vk..Physical-device-memory-properties
+) (vk..Image, vk..Device-memory) {
+	image-ci := vk..Image-create-info {
+		image-type: vk..Image-type..type-2d--c
+		format
+		mip-levels
+		array-layers: 1
+		samples:      num-samples
+		tiling
+		usage
+		sharing-mode:             vk..Sharing-mode..exclusive--c
+		queue-family-index-count: 0
+		p-queue-family-indices:   ptr..null()
+		initial-layout:           vk..Image-layout..undefined--c
+		extent: vk..Extent3-d {
+			width
+			height
+			depth: 1
+		}
+		...
+	}
+
+	texture-image := unsafe {
+		< device
+			.create-image(&image-ci, None)
+			.expect("Failed to create texture image")
+	}
+
+	image-memory-requirement := unsafe {
+		< device.get-image-memory-requirements(texture-image)
+	}
+
+	memory-allocate-info := vk..Memory-allocate-info {
+		allocation-size: image-memory-requirement.size
+		memory-type-index: find-memory-type(
+			image-memory-requirement.memory-type-bits
+			required-memory-properties
+			device-memory-properties
+		)
+		...
+	}
+
+	texture-image-memory := unsafe {
+		< device
+			.allocate-memory(&memory-allocate-info, None)
+			.expect("Failed to allocate texture image memory")
+	}
+
+	unsafe {
+		device
+			.bind-image-memory(texture-image, texture-image-memory, 0)
+			.expect("Failed to bind image memory")
+	}
+
+	ret (texture-image, texture-image-memory)
+}
+
+transition-image-layout+ func(
+	device       &ash..Device
+	command-pool vk..Command-pool
+	submit-queue vk..Queue
+	image        vk..Image
+	-format      vk..Format
+	old-layout   vk..Image-layout
+	new-layout   vk..Image-layout
+	mip-levels   u32
+) {
+	command-buffer := begin-single-time-command(device, command-pool)
+
+	src-access-mask let
+	dst-access-mask let
+	source-stage let
+	destination-stage let
+
+	if old-layout == vk..Image-layout..undefined--c &&
+			new-layout == vk..Image-layout..transfer-dst-optimal--c {
+		src-access-mask = vk..Access-flags..empty()
+		dst-access-mask = vk..Access-flags..transfer-write--c
+		source-stage = vk..Pipeline-stage-flags..top-of-pipe--c
+		destination-stage = vk..Pipeline-stage-flags..transfer--c
+	} else if old-layout == vk..Image-layout..transfer-dst-optimal--c &&
+			new-layout == vk..Image-layout..shader-read-only-optimal--c {
+		src-access-mask = vk..Access-flags..transfer-write--c
+		dst-access-mask = vk..Access-flags..shader-read--c
+		source-stage = vk..Pipeline-stage-flags..transfer--c
+		destination-stage = vk..Pipeline-stage-flags..fragment-shader--c
+	} else if old-layout == vk..Image-layout..undefined--c &&
+			new-layout == vk..Image-layout..color-attachment-optimal--c {
+		src-access-mask = vk..Access-flags..empty()
+		dst-access-mask = vk..Access-flags..color-attachment-read--c |
+			vk..Access-flags..color-attachment-write--c
+		source-stage = vk..Pipeline-stage-flags..top-of-pipe--c
+		destination-stage = vk..Pipeline-stage-flags..color-attachment-output--c
+	} else {
+		panic,,("unsupported layout transition")
+	}
+
+	image-barriers := {{
+		vk..Image-memory-barrier {
+			src-access-mask
+			dst-access-mask
+			old-layout
+			new-layout
+			src-queue-family-index: vk..queue-family-ignored--c
+			dst-queue-family-index: vk..queue-family-ignored--c
+			image
+			subresource-range: vk..Image-subresource-range {
+				aspect-mask:      vk..Image-aspect-flags..color--c
+				base-mip-level:   0
+				level-count:      mip-levels
+				base-array-layer: 0
+				layer-count:      1
+			}
+			...
+		}
+	}}
+
+	unsafe {
+		device.cmd-pipeline-barrier(
+			command-buffer
+			source-stage
+			destination-stage
+			vk..Dependency-flags..empty()
+			&{{}}
+			&{{}}
+			&image-barriers
+		)
+	}
+
+	end-single-time-command(device, command-pool, submit-queue, command-buffer)
+}
+
+create-image-views+ func(
+	device         &ash..Device
+	surface-format vk..Format
+	images         &Vec[vk..Image]
+) Vec[vk..Image-view] {
+	swapchain-imageviews := images
+		.iter()
+		.map(|image| {
+			< create-image-view(
+				device
+				*image
+				surface-format
+				vk..Image-aspect-flags..color--c
+				1
+			)
+		})
+		.collect[Vec[vk..ImageView]]()
+
+	ret swapchain-imageviews
+}
+
+create-image-view+ func(
+	device       &ash..Device
+	image        vk..Image
+	format       vk..Format
+	aspect-flags vk..Image-aspect-flags
+	mip-levels   u32
+) vk..Image-view {
+	imageview-ci := vk..Image-view-create-info {
+		view-type: vk..Image-view-type..type-2d--c
+		format
+		components: vk..Component-mapping {
+			r: vk..Component-swizzle..identity--c
+			g: vk..Component-swizzle..identity--c
+			b: vk..Component-swizzle..identity--c
+			a: vk..Component-swizzle..identity--c
+		}
+		subresource-range: vk..Image-subresource-range {
+			aspect-mask:      aspect-flags
+			base-mip-level:   0
+			level-count:      mip-levels
+			base-array-layer: 0
+			layer-count:      1
+		}
+		image
+		...
+	}
+
+	ret unsafe {
+		< device
+			.create-image-view(&imageview-ci, None)
+			.expect("Failed to create image view")
+	}
+}
+
+create-texture-image-view+ func(
+	device        &ash..Device
+	texture-image vk..Image
+	mip-levels    u32
+) vk..Image-view {
+	ret create-image-view(
+		device
+		texture-image
+		vk..Format..r8g8b8a8-srgb--c
+		vk..Image-aspect-flags..color--c
+		mip-levels
+	)
+}
+
+create-texture-sampler+ func(device &ash..Device) vk..Sampler {
+	sampler-ci := vk..Sampler-create-info {
+		mag-filter:               vk..Filter..linear--c
+		min-filter:               vk..Filter..linear--c
+		address-mode-u:           vk..Sampler-address-mode..repeat--c
+		address-mode-v:           vk..Sampler-address-mode..repeat--c
+		address-mode-w:           vk..Sampler-address-mode..repeat--c
+		max-anisotropy:           16.0
+		compare-enable:           vk..false--c
+		compare-op:               vk..Compare-op..always--c
+		mipmap-mode:              vk..Sampler-mipmap-mode..linear--c
+		min-lod:                  0.0
+		max-lod:                  0.0
+		mip-lod-bias:             0.0
+		border-color:             vk..Border-color..int-opaque-black--c
+		anisotropy-enable:        vk..true--c
+		unnormalized-coordinates: vk..false--c
+		...
+	}
+
+	ret unsafe {
+		< device
+			.create-sampler(&sampler-ci, None)
+			.expect("Failed to create sampler")
+	}
+}
+
+create-texture-image+ func(
+	device                   &ash..Device
+	command-pool             vk..Command-pool
+	submit-queue             vk..Queue
+	device-memory-properties &vk..Physical-device-memory-properties
+	image-path               &Path
+) (vk..Image, vk..Device-memory) {
+	image-object := image..open(image-path).unwrap().flipv()
+	(image-object.width(), image-object.height()) -> (image-width, image-height)
+	image-data := match &image-object {
+		image..Dynamic-image..Image-bgr8(-) |
+		image..Dynamic-image..Image-luma-8(-) |
+		image..Dynamic-image..Image-rgb8(-): image-object.to-rgba().into-raw()
+
+		image..Dynamic-image..Image-bgra8(-) |
+		image..Dynamic-image..Image-luma-a8(-) |
+		image..Dynamic-image..Image-rgba8(-): image-object.raw-pixels()
+	}
+	image-size := (std..mem..size-of[u8]() as u32 * image-width *
+		image-height * 4) as vk..Device-size
+
+	if image-size <= 0 {
+		panic,,("Failed to load texture image")
+	}
+
+	create-buffer(
+		device
+		image-size
+		vk..Buffer-usage-flags..transfer-src--c
+		vk..Memory-property-flags..host-visible--c | vk..Memory-property-flags..host-coherent--c
+		device-memory-properties
+	) -> (staging-buffer, staging-buffer-memory)
+
+	unsafe {
+		data-ptr := device
+			.map-memory(
+				staging-buffer-memory
+				0
+				image-size
+				vk..Memory-map-flags..empty()
+			)
+			.expect("Failed to map memory") as *mut u8
+
+		data-ptr.copy-from-nonoverlapping(image-data.as-ptr(), image-data.len())
+
+		device.unmap-memory(staging-buffer-memory)
+	}
+
+	create-image(
+		device
+		image-width
+		image-height
+		1
+		vk..Sample-count-flags..type-1--c
+		vk..Format..r8g8b8a8-srgb--c
+		vk..Image-tiling..optimal--c
+		vk..Image-usage-flags..transfer-dst--c | vk..Image-usage-flags..sampled--c
+		vk..Memory-property-flags..device-local--c
+		device-memory-properties
+	) -> (texture-image, texture-image-memory)
+
+	transition-image-layout(
+		device
+		command-pool
+		submit-queue
+		texture-image
+		vk..Format..r8g8b8a8-srgb--c
+		vk..Image-layout..undefined--c
+		vk..Image-layout..transfer-dst-optimal--c
+		1
+	)
+
+	copy-buffer-to-image(
+		device
+		command-pool
+		submit-queue
+		staging-buffer
+		texture-image
+		image-width
+		image-height
+	)
+
+	transition-image-layout(
+		device
+		command-pool
+		submit-queue
+		texture-image
+		vk..Format..r8g8b8a8-unorm--c
+		vk..Image-layout..transfer-dst-optimal--c
+		vk..Image-layout..shader-read-only-optimal--c
+		1
+	)
+
+	unsafe {
+		device.destroy-buffer(staging-buffer, None)
+		device.free-memory(staging-buffer-memory, None)
+	}
+
+	ret (texture-image, texture-image-memory)
+}
+
+create-depth-resources+ func(
+	instance                 &ash..Instance
+	device                   &ash..Device
+	physical-device          vk..Physical-device
+	-command-pool            vk..Command-pool
+	-submit-queue            vk..Queue
+	swapchain-extent         vk..Extent2-d
+	device-memory-properties &vk..Physical-device-memory-properties
+	msaa-samples             vk..Sample-count-flags
+) (vk..Image, vk..Image-view, vk..Device-memory) {
+	depth-format := find-depth-format(instance, physical-device)
+	create-image(
+		device
+		swapchain-extent.width
+		swapchain-extent.height
+		1
+		msaa-samples
+		depth-format
+		vk..Image-tiling..optimal--c
+		vk..Image-usage-flags..depth-stencil-attachment--c
+		vk..Memory-property-flags..device-local--c
+		device-memory-properties
+	) -> (depth-image, depth-image-memory)
+	depth-image-view := create-image-view(
+		device
+		depth-image
+		depth-format
+		vk..Image-aspect-flags..depth--c
+		1
+	)
+
+	ret (depth-image, depth-image-view, depth-image-memory)
+}
+
+generate-mipmaps+ func(
+	device       &ash..Device
+	command-pool vk..Command-pool
+	submit-queue vk..Queue
+	image        vk..Image
+	tex-width    u32
+	tex-height   u32
+	mip-levels   u32
+) {
+	command-buffer := begin-single-time-command(device, command-pool)
+
+	image-barrier := vk..Image-memory-barrier {
+		src-access-mask:        vk..Access-flags..empty()
+		dst-access-mask:        vk..Access-flags..empty()
+		old-layout:             vk..Image-layout..undefined--c
+		new-layout:             vk..Image-layout..undefined--c
+		src-queue-family-index: vk..queue-family-ignored--c
+		dst-queue-family-index: vk..queue-family-ignored--c
+		image
+		subresource-range: vk..Image-subresource-range {
+			aspect-mask:      vk..Image-aspect-flags..color--c
+			base-mip-level:   0
+			level-count:      1
+			base-array-layer: 0
+			layer-count:      1
+		}
+		...
+	}
+
+	mip-width := tex-width as i32
+	mip-height := tex-height as i32
+
+	for i in 1``mip-levels {
+		image-barrier.subresource-range.base-mip-level = i ~ 1
+		image-barrier.old-layout = vk..Image-layout..transfer-dst-optimal--c
+		image-barrier.new-layout = vk..Image-layout..transfer-src-optimal--c
+		image-barrier.src-access-mask = vk..Access-flags..transfer-write--c
+		image-barrier.dst-access-mask = vk..Access-flags..transfer-read--c
+
+		unsafe {
+			device.cmd-pipeline-barrier(
+				command-buffer
+				vk..Pipeline-stage-flags..transfer--c
+				vk..Pipeline-stage-flags..transfer--c
+				vk..Dependency-flags..empty()
+				&{{}}
+				&{{}}
+				&{{image-barrier.clone()}}
+			)
+		}
+
+		blits := {{
+			vk..Image-blit {
+				src-subresource: vk..Image-subresource-layers {
+					aspect-mask:      vk..Image-aspect-flags..color--c
+					mip-level:        i ~ 1
+					base-array-layer: 0
+					layer-count:      1
+				}
+				src-offsets: {{
+					vk..Offset3-d { x: 0, y: 0, z: 0 }
+					vk..Offset3-d {
+						x: mip-width
+						y: mip-height
+						z: 1
+					}
+				}}
+				dst-subresource: vk..Image-subresource-layers {
+					aspect-mask:      vk..Image-aspect-flags..color--c
+					mip-level:        i
+					base-array-layer: 0
+					layer-count:      1
+				}
+				dst-offsets: {{
+					vk..Offset3-d { x: 0, y: 0, z: 0 }
+					vk..Offset3-d {
+						x: max(mip-width / 2, 1)
+						y: max(mip-height / 2, 1)
+						z: 1
+					}
+				}}
+			}
+		}}
+
+		unsafe {
+			device.cmd-blit-image(
+				command-buffer
+				image
+				vk..Image-layout..transfer-src-optimal--c
+				image
+				vk..Image-layout..transfer-dst-optimal--c
+				&blits
+				vk..Filter..linear--c
+			)
+		}
+
+		image-barrier.old-layout = vk..Image-layout..transfer-src-optimal--c
+		image-barrier.new-layout = vk..Image-layout..shader-read-only-optimal--c
+		image-barrier.src-access-mask = vk..Access-flags..transfer-read--c
+		image-barrier.dst-access-mask = vk..Access-flags..shader-read--c
+
+		unsafe {
+			device.cmd-pipeline-barrier(
+				command-buffer
+				vk..Pipeline-stage-flags..transfer--c
+				vk..Pipeline-stage-flags..fragment-shader--c
+				vk..Dependency-flags..empty()
+				&{{}}
+				&{{}}
+				&{{image-barrier.clone()}}
+			)
+		}
+
+		mip-width = max(mip-width / 2, 1)
+		mip-height = max(mip-height / 2, 1)
+	}
+
+	image-barrier.subresource-range.base-mip-level = mip-levels ~ 1
+	image-barrier.old-layout = vk..Image-layout..transfer-dst-optimal--c
+	image-barrier.new-layout = vk..Image-layout..shader-read-only-optimal--c
+	image-barrier.src-access-mask = vk..Access-flags..transfer-write--c
+	image-barrier.dst-access-mask = vk..Access-flags..shader-read--c
+
+	unsafe {
+		device.cmd-pipeline-barrier(
+			command-buffer
+			vk..Pipeline-stage-flags..transfer--c
+			vk..Pipeline-stage-flags..fragment-shader--c
+			vk..Dependency-flags..empty()
+			&{{}}
+			&{{}}
+			&{{image-barrier.clone()}}
+		)
+	}
+
+	end-single-time-command(device, command-pool, submit-queue, command-buffer)
+}

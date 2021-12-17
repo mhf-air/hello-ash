@@ -1,0 +1,33 @@
+import {
+	std {
+		ffi..C-str
+		os..raw..c-char
+		path..Path
+	}
+}
+
+vk-to-string+ func(raw-string-array &{{c-char}}) String {
+	raw-string := unsafe {
+		pointer := raw-string-array.as-ptr()
+		< C-str..from-ptr(pointer)
+	}
+
+	ret raw-string
+		.to-str()
+		.expect("Failed to convert vulkan raw string")
+		.to-owned()
+}
+
+read-shader-code+ func(shader-path &Path) Vec[u8] {
+	import {
+		std {
+			fs..File
+			io..Read
+		}
+	}
+
+	spv-file := File..open(shader-path).expect(&format,,("Failed to find spv file at {:?}", shader-path))
+	bytes-code := spv-file.bytes().filter-map(|bytes| bytes.ok()).collect[Vec[u8]]()
+
+	ret bytes-code
+}

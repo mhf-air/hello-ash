@@ -1,0 +1,146 @@
+import {
+	ash {
+		version..DeviceV1-0--r
+		vk
+	}
+	std..ptr
+}
+
+create-descriptor-pool+ func(
+	device                &ash..Device
+	swapchain-images-size usize
+) vk..Descriptor-pool {
+	pool-sizes := {{
+		// transform descriptor pool
+		vk..Descriptor-pool-size {
+			ty:               vk..Descriptor-type..uniform-buffer--c
+			descriptor-count: swapchain-images-size as u32
+		}
+		// sampler descriptor pool
+		vk..Descriptor-pool-size {
+			ty:               vk..Descriptor-type..combined-image-sampler--c
+			descriptor-count: swapchain-images-size as u32
+		}
+	}}
+
+	descriptor-pool-create-info := vk..Descriptor-pool-create-info {
+		max-sets:        swapchain-images-size as u32
+		pool-size-count: pool-sizes.len() as u32
+		p-pool-sizes:    pool-sizes.as-ptr()
+		...
+	}
+
+	ret unsafe {
+		< device
+			.create-descriptor-pool(&descriptor-pool-create-info, None)
+			.expect("Failed to create Descriptor Pool")
+	}
+}
+
+create-descriptor-sets+ func(
+	device                &ash..Device
+	descriptor-pool       vk..Descriptor-pool
+	descriptor-set-layout vk..Descriptor-set-layout
+	uniforms-buffers      &Vec[vk..Buffer]
+	texture-image-view    vk..Image-view
+	texture-sampler       vk..Sampler
+	swapchain-images-size usize
+) Vec[vk..Descriptor-set] {
+	layouts := vec,,()
+	for - in 0``swapchain-images-size {
+		layouts.push(descriptor-set-layout)
+	}
+
+	descriptor-set-allocate-info := vk..Descriptor-set-allocate-info {
+		descriptor-pool,
+		descriptor-set-count: swapchain-images-size as u32
+		p-set-layouts:        layouts.as-ptr()
+		...
+	}
+
+	descriptor-sets := unsafe {
+		< device
+			.allocate-descriptor-sets(&descriptor-set-allocate-info)
+			.expect("Failed to allocate descriptor sets")
+	}
+
+	for (i, &descriptor-set) in descriptor-sets.iter().enumerate() {
+		descriptor-buffer-infos := {{
+			vk..Descriptor-buffer-info {
+				buffer: uniforms-buffers{{i}}
+				offset: 0
+				range:  std..mem..size-of[crate..Uniform-buffer-object]() as u64
+			}
+		}}
+
+		descriptor-image-infos := {{
+			vk..Descriptor-image-info {
+				sampler:      texture-sampler
+				image-view:   texture-image-view
+				image-layout: vk..Image-layout..shader-read-only-optimal--c
+			}
+		}}
+
+		descriptor-write-sets := {{
+			vk..Write-descriptor-set {
+				dst-set:             descriptor-set
+				dst-binding:         0
+				dst-array-element:   0
+				descriptor-count:    1
+				descriptor-type:     vk..Descriptor-type..uniform-buffer--c
+				p-image-info:        ptr..null()
+				p-buffer-info:       descriptor-buffer-infos.as-ptr()
+				p-texel-buffer-view: ptr..null()
+				...
+			}
+			vk..Write-descriptor-set {
+				dst-set:             descriptor-set
+				dst-binding:         1
+				dst-array-element:   0
+				descriptor-count:    1
+				descriptor-type:     vk..Descriptor-type..combined-image-sampler--c
+				p-image-info:        descriptor-image-infos.as-ptr()
+				p-buffer-info:       ptr..null()
+				p-texel-buffer-view: ptr..null()
+				...
+			}
+		}}
+
+		unsafe {
+			device.update-descriptor-sets(&descriptor-write-sets, &{{}})
+		}
+	}
+
+	ret descriptor-sets
+}
+
+create-descriptor-set-layout+ func(device &ash..Device) vk..Descriptor-set-layout {
+	ubo-layout-bindings := {{
+		vk..Descriptor-set-layout-binding {
+			binding:              0
+			descriptor-type:      vk..Descriptor-type..uniform-buffer--c
+			descriptor-count:     1
+			stage-flags:          vk..Shader-stage-flags..vertex--c
+			p-immutable-samplers: ptr..null()
+		}
+		vk..Descriptor-set-layout-binding {
+			binding:              1
+			descriptor-type:      vk..Descriptor-type..combined-image-sampler--c
+			descriptor-count:     1
+			stage-flags:          vk..Shader-stage-flags..fragment--c
+			p-immutable-samplers: ptr..null()
+		}
+	}}
+
+	ubo-layout-create-info := vk..Descriptor-set-layout-create-info {
+		binding-count: ubo-layout-bindings.len() as u32
+		p-bindings:    ubo-layout-bindings.as-ptr()
+		...
+	}
+
+	ret unsafe {
+		< device
+			.create-descriptor-set-layout(&ubo-layout-create-info, None)
+			.expect("Failed to create Descriptor Set Layout")
+	}
+}

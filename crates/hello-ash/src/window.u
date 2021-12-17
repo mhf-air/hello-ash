@@ -1,0 +1,94 @@
+import {
+	winit {
+		event {
+			Event, Virtual-key-code, Element-state, Keyboard-input, Window-event
+		}
+		event-loop {
+			Event-loop, Control-flow
+		}
+	}
+}
+
+is-paint-fps-counter--c const bool = true
+
+init-window+ func(
+	event-loop &Event-loop[()]
+	title      &str
+	width      u32
+	height     u32
+) winit..window..Window {
+	ret winit..window..Window-builder..new()
+		.with-title(title)
+		.with-inner-size(winit..dpi..Logical-size..new(width, height))
+		.build(event-loop)
+		.expect("Failed to create window")
+}
+
+Vulkan-app+ interface {
+	draw-frame           (&mut)     func(delta-time f32)
+	recreate-swapchain   (&mut)     func()
+	cleanup-swapchain    (&)        func()
+	wait-device-idle     (&)        func()
+	resize-framebuffer   (&mut)     func()
+	window-ref           (&)        func() &winit..window..Window
+}
+
+Program-proc+ struct {
+	event-loop+ Event-loop[()]
+}
+Program-proc impl {
+	new+ func() Program-proc {
+		event-loop := Event-loop..new()
+		ret Program-proc { event-loop }
+	}
+
+	main-loop+[A 'static + Vulkan-app] (Self) func(vulkan-app A) {
+		vulkan-app := vulkan-app
+		tick-counter := fps-limiter..Fps-limiter..new()
+
+		s.event-loop.run(move |event, -, control-flow| {
+			match event {
+				Event..Window-event{ event, ... }: {
+					match event {
+						Window-event..Close-requested: {
+							vulkan-app.wait-device-idle()
+							*control-flow = Control-flow..Exit
+						}
+						Window-event..Keyboard-input{
+							input: Keyboard-input{ virtual-keycode, state, ... }
+							...
+						}: match (virtual-keycode, state) {
+							(Some(Virtual-key-code..Escape), Element-state..Pressed): {
+								vulkan-app.wait-device-idle()
+								*control-flow = Control-flow..Exit
+							}
+							-:
+						}
+						Window-event..Resized(-new-size): {
+							vulkan-app.wait-device-idle()
+							vulkan-app.resize-framebuffer()
+						}
+						-:
+					}
+				}
+				Event..Main-events-cleared: {
+					vulkan-app.window-ref().request-redraw()
+				}
+				Event..Redraw-requested(-window-id): {
+					delta-time := tick-counter.delta-time()
+					vulkan-app.draw-frame(delta-time)
+
+					if is-paint-fps-counter--c {
+						print,,("FPS: {}\r", tick-counter.fps())
+					}
+
+					tick-counter.tick-frame()
+				}
+				Event..Loop-destroyed: {
+					vulkan-app.wait-device-idle()
+				}
+				-:
+			}
+		})
+	}
+}

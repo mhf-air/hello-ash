@@ -1,0 +1,783 @@
+import {
+	ash {
+		version..DeviceV1-0--r
+		version..EntryV1-0--r
+		version..InstanceV1-0--r
+		vk
+	}
+
+	std {
+		ffi..C-string
+		os {
+			raw { c-char, c-void }
+		}
+		path..Path
+		ptr
+	}
+}
+
+create-instance+ func(
+	entry                      &ash..Entry
+	window-title               &str
+	is-enable-debug            bool
+	required-validation-layers &Vec[&str]
+) ash..Instance {
+	if is-enable-debug &&
+			!crate..check-validation-layer-support(entry, required-validation-layers) {
+		panic,,("Validation layers requested, but not available")
+	}
+
+	app-name := C-string..new(window-title).unwrap()
+	engine-name := C-string..new("Vulkan engine").unwrap()
+	app-info := vk..Application-info {
+		p-application-name:  app-name.as-ptr()
+		application-version: crate..application-version--c
+		p-engine-name:       engine-name.as-ptr()
+		engine-version:      crate..engine-version--c
+		api-version:         crate..api-version--c
+		...
+	}
+
+	debug-utils-ci := crate..populate-debug-messenger-create-info()
+
+	extension-names := crate..required-extension-names()
+
+	required-validation-layer-raw-names := required-validation-layers
+		.iter()
+		.map(|layer-name| C-string..new(*layer-name).unwrap())
+		.collect[Vec[C-string]]()
+	layer-names := required-validation-layer-raw-names
+		.iter()
+		.map(|layer-name| layer-name.as-ptr())
+		.collect[Vec[*const i8]]()
+
+	ci := vk..Instance-create-info {
+		p-next: if crate..validation--c.is-enable {
+			< &debug-utils-ci as *const vk..Debug-utils-messenger-create-info-e-x-t as *const c-void
+		} else {
+			< ptr..null()
+		}
+		p-application-info: &app-info
+		pp-enabled-layer-names: if is-enable-debug {
+			< layer-names.as-ptr()
+		} else {
+			< ptr..null()
+		}
+		enabled-layer-count: if is-enable-debug {
+			< layer-names.len()
+		} else {
+			< 0
+		} as u32
+		pp-enabled-extension-names: extension-names.as-ptr()
+		enabled-extension-count:    extension-names.len() as u32
+		...
+	}
+
+	instance := unsafe {
+		< entry
+			.create-instance(&ci, None)
+			.expect("Failed to create instance")
+	}
+
+	ret instance
+}
+
+create-surface+ func(
+	entry         &ash..Entry
+	instance      &ash..Instance
+	window        &winit..window..Window
+	screen-width  u32
+	screen-height u32
+) crate..Surface-stuff {
+	surface := unsafe {
+		< crate..create-surface(entry, instance, window).expect("Failed to create surface")
+	}
+	surface-loader := ash..extensions..khr..Surface..new(entry, instance)
+
+	ret crate..Surface-stuff {
+		surface-loader
+		surface
+		screen-width
+		screen-height
+	}
+}
+
+pick-physical-device+ func(
+	instance                   &ash..Instance
+	surface-stuff              &crate..Surface-stuff
+	required-device-extensions &crate..Device-extension
+) vk..Physical-device {
+	physical-devices := unsafe {
+		< instance
+			.enumerate-physical-devices()
+			.expect("Failed to enumerate physical devices")
+	}
+
+	result := physical-devices.iter().find(|phy-dev| {
+		is-suitable := is-physical-device-suitable(
+			instance
+			**phy-dev
+			surface-stuff
+			required-device-extensions
+		)
+
+		ret is-suitable
+	})
+
+	ret match result {
+		Some(p-phy-dev): *p-phy-dev
+		None: panic,,("Failed to find a suitable GPU")
+	}
+}
+
+is-physical-device-suitable+ func(
+	instance                   &ash..Instance
+	physical-device            vk..Physical-device
+	surface-stuff              &crate..Surface-stuff
+	required-device-extensions &crate..Device-extension
+) bool {
+	device-features := unsafe {
+		< instance.get-physical-device-features(physical-device)
+	}
+
+	indices := find-queue-family(instance, physical-device, surface-stuff)
+
+	is-queue-family-supported := indices.is-complete()
+	is-device-extension-supported := check-device-extension-support(
+		instance
+		physical-device
+		required-device-extensions
+	)
+	is-swapchain-supported := if is-device-extension-supported {
+		swapchain-support := query-swapchain-support(physical-device, surface-stuff)
+		< !swapchain-support.formats.is-empty() && !swapchain-support.present-modes.is-empty()
+	} else {
+		< false
+	}
+	is-support-sampler-anisotropy := device-features.sampler-anisotropy == 1
+
+	ret is-queue-family-supported &&
+		is-device-extension-supported &&
+		is-swapchain-supported &&
+		is-support-sampler-anisotropy
+}
+
+create-logical-device+ func(
+	instance          &ash..Instance
+	physical-device   vk..Physical-device
+	validation        &crate..Validation-info
+	device-extensions &crate..Device-extension
+	surface-stuff     &crate..Surface-stuff
+) (ash..Device, crate..Queue-family-indices) {
+	indices := find-queue-family(instance, physical-device, surface-stuff)
+
+	import { std..collections..Hash-set }
+	unique-queue-families := Hash-set..new()
+	unique-queue-families.insert(indices.graphics-family.unwrap())
+	unique-queue-families.insert(indices.present-family.unwrap())
+
+	queue-priorities := {{ 1.0 }}
+	queue-create-infos := vec,,()
+	for &queue-family in unique-queue-families.iter() {
+		queue-ci := vk..Device-queue-create-info {
+			queue-family-index: queue-family
+			p-queue-priorities: queue-priorities.as-ptr()
+			queue-count:        queue-priorities.len() as u32
+			...
+		}
+		queue-create-infos.push(queue-ci)
+	}
+
+	physical-device-features := vk..Physical-device-features {
+		sampler-anisotropy: vk..true--c
+		...
+	}
+
+	required-validation-layer-raw-names := validation
+		.required-validation-layer
+		.iter()
+		.map(|layer-name| C-string..new(*layer-name).unwrap())
+		.collect[Vec[C-string]]()
+	enable-layer-names := required-validation-layer-raw-names
+		.iter()
+		.map(|layer-name| layer-name.as-ptr())
+		.collect[Vec[*const c-char]]()
+
+	enable-extension-names := device-extensions.get-extension-raw-names()
+
+	device-ci := vk..Device-create-info {
+		queue-create-info-count: queue-create-infos.len() as u32
+		p-queue-create-infos:    queue-create-infos.as-ptr()
+		enabled-layer-count: if validation.is-enable {
+			< enable-layer-names.len()
+		} else {
+			< 0
+		} as u32
+		pp-enabled-layer-names: if validation.is-enable {
+			< enable-layer-names.as-ptr()
+		} else {
+			< ptr..null()
+		}
+		enabled-extension-count:    enable-extension-names.len() as u32
+		pp-enabled-extension-names: enable-extension-names.as-ptr()
+		p-enabled-features:         &physical-device-features
+		...
+	}
+
+	device := unsafe {
+		< instance
+			.create-device(physical-device, &device-ci, None)
+			.expect("Failed to create logical device")
+	}
+
+	ret (device, indices)
+}
+
+find-queue-family+ func(
+	instance        &ash..Instance
+	physical-device vk..Physical-device
+	surface-stuff   &crate..Surface-stuff
+) crate..Queue-family-indices {
+	queue-families := unsafe {
+		< instance.get-physical-device-queue-family-properties(physical-device)
+	}
+
+	queue-family-indices := crate..Queue-family-indices..new()
+
+	index := 0
+	for queue-family in queue-families.iter() {
+		if queue-family.queue-count > 0 &&
+				queue-family.queue-flags.contains(vk..Queue-flags..graphics--c) {
+			queue-family-indices.graphics-family = Some(index)
+		}
+
+		is-present-support := unsafe {
+			< surface-stuff
+				.surface-loader
+				.get-physical-device-surface-support(
+					physical-device
+					index as u32
+					surface-stuff.surface
+				)
+		}
+		if queue-family.queue-count > 0 && is-present-support {
+			queue-family-indices.present-family = Some(index)
+		}
+
+		if queue-family-indices.is-complete() {
+			break
+		}
+
+		index++
+	}
+
+	ret queue-family-indices
+}
+
+check-device-extension-support+ func(
+	instance          &ash..Instance
+	physical-device   vk..Physical-device
+	device-extensions &crate..Device-extension
+) bool {
+	available-extensions := unsafe {
+		< instance
+			.enumerate-device-extension-properties(physical-device)
+			.expect("Failed to get device extension properties")
+	}
+
+	available-extension-names := vec,,()
+
+	for extension in available-extensions.iter() {
+		extension-name := crate..vk-to-string(&extension.extension-name)
+		available-extension-names.push(extension-name)
+	}
+
+	import { std..collections..Hash-set }
+	required-extensions := Hash-set..new()
+	for extension in device-extensions.names.iter() {
+		required-extensions.insert(extension.to-string())
+	}
+
+	for extension-name in available-extension-names.iter() {
+		required-extensions.remove(extension-name)
+	}
+
+	ret required-extensions.is-empty()
+}
+
+query-swapchain-support+ func(
+	physical-device vk..Physical-device
+	surface-stuff   &crate..Surface-stuff
+) crate..Swap-chain-support-detail {
+	ret unsafe {
+		capabilities := surface-stuff
+			.surface-loader
+			.get-physical-device-surface-capabilities(physical-device, surface-stuff.surface)
+			.expect("Failed to query for surface capabilities")
+		formats := surface-stuff
+			.surface-loader
+			.get-physical-device-surface-formats(physical-device, surface-stuff.surface)
+			.expect("Failed to query for surface formats")
+		present-modes := surface-stuff
+			.surface-loader
+			.get-physical-device-surface-present-modes(physical-device, surface-stuff.surface)
+			.expect("Failed to query for surface present mode")
+
+		< crate..Swap-chain-support-detail {
+			capabilities
+			formats
+			present-modes
+		}
+	}
+}
+
+create-swapchain+ func(
+	instance        &ash..Instance
+	device          &ash..Device
+	physical-device vk..Physical-device
+	window          &winit..window..Window
+	surface-stuff   &crate..Surface-stuff
+	queue-family    &crate..Queue-family-indices
+) crate..Swap-chain-stuff {
+	swapchain-support := query-swapchain-support(physical-device, surface-stuff)
+
+	surface-format := choose-swapchain-format(&swapchain-support.formats)
+	present-mode := choose-swapchain-present-mode(&swapchain-support.present-modes)
+	extent := choose-swapchain-extent(&swapchain-support.capabilities, window)
+
+	image-count := swapchain-support.capabilities.min-image-count + 1
+	image-count := if swapchain-support.capabilities.max-image-count > 0 {
+		< image-count.min(swapchain-support.capabilities.max-image-count)
+	} else {
+		< image-count
+	}
+
+	if queue-family.graphics-family != queue-family.present-family {
+		< (
+			vk..Sharing-mode..concurrent--c
+			2
+			vec,,(
+				queue-family.graphics-family.unwrap()
+				queue-family.present-family.unwrap()
+			)
+		)
+	} else {
+		< (vk..Sharing-mode..exclusive--c, 0, vec,,())
+	} -> (image-sharing-mode, queue-family-index-count, queue-family-indices)
+
+	swapchain-ci := vk..Swapchain-create-info-k-h-r {
+		surface:           surface-stuff.surface
+		min-image-count:   image-count
+		image-color-space: surface-format.color-space
+		image-format:      surface-format.format
+		image-extent:      extent
+		image-usage:       vk..Image-usage-flags..color-attachment--c
+		image-sharing-mode
+		p-queue-family-indices: queue-family-indices.as-ptr()
+		queue-family-index-count
+		pre-transform:   swapchain-support.capabilities.current-transform
+		composite-alpha: vk..Composite-alpha-flags-k-h-r..opaque--c
+		present-mode
+		clipped:            vk..true--c
+		old-swapchain:      vk..Swapchain-k-h-r..null()
+		image-array-layers: 1
+		...
+	}
+
+	swapchain-loader := ash..extensions..khr..Swapchain..new(instance, device)
+	swapchain := unsafe {
+		< swapchain-loader
+			.create-swapchain(&swapchain-ci, None)
+			.expect("Failed to create swapchain")
+	}
+
+	swapchain-images := unsafe {
+		< swapchain-loader
+			.get-swapchain-images(swapchain)
+			.expect("Failed to get swapchain images")
+	}
+
+	ret crate..Swap-chain-stuff {
+		swapchain-loader
+		swapchain
+		swapchain-format: surface-format.format
+		swapchain-extent: extent
+		swapchain-images
+	}
+}
+
+choose-swapchain-format+ func(
+	available-formats &Vec[vk..Surface-format-k-h-r]
+) vk..Surface-format-k-h-r {
+	for f in available-formats {
+		if f.format == vk..Format..b8g8r8a8-srgb--c &&
+				f.color-space == vk..Color-space-k-h-r..srgb-nonlinear--c {
+			ret f.clone()
+		}
+	}
+
+	ret available-formats.first().unwrap().clone()
+}
+
+choose-swapchain-present-mode+ func(
+	available-present-modes &Vec[vk..Present-mode-k-h-r]
+) vk..Present-mode-k-h-r {
+	for &mode in available-present-modes.iter() {
+		if mode == vk..Present-mode-k-h-r..mailbox--c {
+			ret mode
+		}
+	}
+
+	ret vk..Present-mode-k-h-r..fifo--c
+}
+
+choose-swapchain-extent+ func(
+	capabilities &vk..Surface-capabilities-k-h-r
+	window       &winit..window..Window
+) vk..Extent2-d {
+	if capabilities.current-extent.width != u32..max-value() {
+		ret capabilities.current-extent
+	} else {
+		import { num..clamp }
+
+		window-size := window.inner-size()
+		println,,(
+			"\t\tInner window size: ({}, {})"
+			window-size.width
+			window-size.height
+		)
+
+		ret vk..Extent2-d {
+			width: clamp(
+				window-size.width as u32
+				capabilities.min-image-extent.width
+				capabilities.max-image-extent.width
+			)
+			height: clamp(
+				window-size.height as u32
+				capabilities.min-image-extent.height
+				capabilities.max-image-extent.height
+			)
+		}
+	}
+}
+
+create-shader-module+ func(device &ash..Device, code Vec[u8]) vk..Shader-module {
+	shader-module-ci := vk..Shader-module-create-info {
+		code-size: code.len()
+		p-code:    code.as-ptr() as *const u32
+		...
+	}
+
+	ret unsafe {
+		< device
+			.create-shader-module(&shader-module-ci, None)
+			.expect("Failed to create shader module")
+	}
+}
+
+create-buffer+ func(
+	device                     &ash..Device
+	size                       vk..Device-size
+	usage                      vk..Buffer-usage-flags
+	required-memory-properties vk..Memory-property-flags
+	device-memory-properties   &vk..Physical-device-memory-properties
+) (vk..Buffer, vk..Device-memory) {
+	buffer-ci := vk..Buffer-create-info {
+		size
+		usage
+		sharing-mode:             vk..Sharing-mode..exclusive--c
+		queue-family-index-count: 0
+		p-queue-family-indices:   ptr..null()
+		...
+	}
+
+	buffer := unsafe {
+		< device
+			.create-buffer(&buffer-ci, None)
+			.expect("Failed to create vertex buffer")
+	}
+
+	mem-requirements := unsafe {
+		< device.get-buffer-memory-requirements(buffer)
+	}
+	memory-type := find-memory-type(
+		mem-requirements.memory-type-bits
+		required-memory-properties
+		device-memory-properties
+	)
+
+	ai := vk..Memory-allocate-info {
+		allocation-size:   mem-requirements.size
+		memory-type-index: memory-type
+		...
+	}
+
+	buffer-memory := unsafe {
+		< device
+			.allocate-memory(&ai, None)
+			.expect("Failed to allocate vertex buffer memory")
+	}
+
+	unsafe {
+		< device
+			.bind-buffer-memory(buffer, buffer-memory, 0)
+			.expect("Failed to bind buffer")
+	}
+
+	ret (buffer, buffer-memory)
+}
+
+copy-buffer+ func(
+	device       &ash..Device
+	submit-queue vk..Queue
+	command-pool vk..Command-pool
+	src-buffer   vk..Buffer
+	dst-buffer   vk..Buffer
+	size         vk..Device-size
+) {
+	command-buffer := begin-single-time-command(device, command-pool)
+
+	copy-regions := {{
+		vk..Buffer-copy {
+			src-offset: 0
+			dst-offset: 0
+			size
+		}
+	}}
+
+	unsafe {
+		< device.cmd-copy-buffer(command-buffer, src-buffer, dst-buffer, &copy-regions)
+	}
+
+	end-single-time-command(device, command-pool, submit-queue, command-buffer)
+}
+
+begin-single-time-command+ func(
+	device       &ash..Device
+	command-pool vk..Command-pool
+) vk..Command-buffer {
+	command-buffer-ai := vk..Command-buffer-allocate-info {
+		command-buffer-count: 1
+		command-pool
+		level: vk..Command-buffer-level..primary--c
+		...
+	}
+
+	command-buffer := unsafe {
+		< device
+			.allocate-command-buffers(&command-buffer-ai)
+			.expect("Failed to allocate command buffers")
+	}{{0}}
+
+	command-buffer-begin-info := vk..Command-buffer-begin-info {
+		p-inheritance-info: ptr..null()
+		flags:              vk..Command-buffer-usage-flags..one-time-submit--c
+		...
+	}
+
+	unsafe {
+		device
+			.begin-command-buffer(command-buffer, &command-buffer-begin-info)
+			.expect("Failed to begin recording command buffer at beginning")
+	}
+
+	ret command-buffer
+}
+
+end-single-time-command+ func(
+	device         &ash..Device
+	command-pool   vk..Command-pool
+	submit-queue   vk..Queue
+	command-buffer vk..Command-buffer
+) {
+	unsafe {
+		device
+			.end-command-buffer(command-buffer)
+			.expect("Failed to record command buffer at ending")
+	}
+
+	buffers-to-submit := {{ command-buffer }}
+
+	submit-infos := {{
+		vk..Submit-info {
+			wait-semaphore-count:   0
+			p-wait-semaphores:      ptr..null()
+			p-wait-dst-stage-mask:  ptr..null()
+			command-buffer-count:   1
+			p-command-buffers:      buffers-to-submit.as-ptr()
+			signal-semaphore-count: 0
+			p-signal-semaphores:    ptr..null()
+			...
+		}
+	}}
+
+	unsafe {
+		device
+			.queue-submit(submit-queue, &submit-infos, vk..Fence..null())
+			.expect("Failed to queue submit")
+		device
+			.queue-wait-idle(submit-queue)
+			.expect("Failed to wait queue idle")
+		device.free-command-buffers(command-pool, &buffers-to-submit)
+	}
+}
+
+find-memory-type+ func(
+	type-filter         u32
+	required-properties vk..Memory-property-flags
+	mem-properties      &vk..Physical-device-memory-properties
+) u32 {
+	for (i, memory-type) in mem-properties.memory-types.iter().enumerate() {
+		if (type-filter & (1 << i)) > 0 && memory-type.property-flags.contains(required-properties) {
+			ret i as u32
+		}
+	}
+
+	panic,,("Failed to find suitable memory type")
+}
+
+has-stencil-compontent+ func(format vk..Format) bool {
+	ret format == vk..Format..d32-sfloat-s8-uint--c ||
+			format == vk..Format..d24-unorm-s8-uint--c
+}
+
+copy-buffer-to-image+ func(
+	device       &ash..Device
+	command-pool vk..Command-pool
+	submit-queue vk..Queue
+	buffer       vk..Buffer
+	image        vk..Image
+	width        u32
+	height       u32
+) {
+	command-buffer := begin-single-time-command(device, command-pool)
+
+	buffer-image-regions := {{
+		vk..Buffer-image-copy {
+			image-subresource: vk..Image-subresource-layers {
+				aspect-mask:      vk..Image-aspect-flags..color--c
+				mip-level:        0
+				base-array-layer: 0
+				layer-count:      1
+			}
+			image-extent: vk..Extent3-d {
+				width
+				height
+				depth: 1
+			}
+			buffer-offset:       0
+			buffer-image-height: 0
+			buffer-row-length:   0
+			image-offset:        vk..Offset3-d { x: 0, y: 0, z: 0 }
+		}
+	}}
+
+	unsafe {
+		device.cmd-copy-buffer-to-image(
+			command-buffer
+			buffer
+			image
+			vk..Image-layout..transfer-dst-optimal--c
+			&buffer-image-regions
+		)
+	}
+
+	end-single-time-command(device, command-pool, submit-queue, command-buffer)
+}
+
+find-depth-format+ func(
+	instance        &ash..Instance
+	physical-device vk..Physical-device
+) vk..Format {
+	ret find-supported-format(
+		instance
+		physical-device
+		&{{
+			vk..Format..d32-sfloat--c
+			vk..Format..d32-sfloat-s8-uint--c
+			vk..Format..d24-unorm-s8-uint--c
+		}}
+		vk..Image-tiling..optimal--c
+		vk..Format-feature-flags..depth-stencil-attachment--c
+	)
+}
+
+find-supported-format+ func(
+	instance          &ash..Instance
+	physical-device   vk..Physical-device
+	candidate-formats &{{vk..Format}}
+	tiling            vk..Image-tiling
+	features          vk..Format-feature-flags
+) vk..Format {
+	for &format in candidate-formats.iter() {
+		format-properties := unsafe {
+			< instance.get-physical-device-format-properties(physical-device, format)
+		}
+		if tiling == vk..Image-tiling..linear--c &&
+				format-properties.linear-tiling-features.contains(features) {
+			ret format.clone()
+		} else if tiling == vk..Image-tiling..optimal--c &&
+				format-properties.optimal-tiling-features.contains(features) {
+			ret format.clone()
+		}
+	}
+
+	panic,,("Failed to find supported format")
+}
+
+load-model+ func(model-path &Path) (Vec[crate..Vertex-v3], Vec[u32]) {
+	model-obj := tobj..load-obj(model-path).expect("Failed to load model object")
+
+	vertices := vec,,()
+	indices := vec,,()
+
+	model-obj -> (models, -)
+	for m in models.iter() {
+		mesh := &m.mesh
+
+		if mesh.texcoords.is-empty() {
+			panic,,("Missing texture coordinate for the model")
+		}
+
+		total-vertices-count := mesh.positions.len() / 3
+		for i in 0``total-vertices-count {
+			vertex := crate..Vertex-v3 {
+				pos: {{
+					mesh.positions{{i * 3}}
+					mesh.positions{{i * 3 + 1}}
+					mesh.positions{{i * 3 + 2}}
+					1.0
+				}}
+				color: {{ 1.0, 1.0, 1.0, 1.0 }}
+				tex-coord: {{
+					mesh.texcoords{{i * 2}}
+					mesh.texcoords{{i * 2 + 1}}
+				}}
+			}
+			vertices.push(vertex)
+		}
+
+		indices = mesh.indices.clone()
+	}
+
+	ret (vertices, indices)
+}
+
+check-mipmap-support+ func(
+	instance        &ash..Instance
+	physical-device vk..Physical-device
+	image-format    vk..Format
+) {
+	format-properties := unsafe {
+		< instance.get-physical-device-format-properties(physical-device, image-format)
+	}
+
+	supported := format-properties
+		.optimal-tiling-features
+		.contains(vk..Format-feature-flags..sampled-image-filter-linear--c)
+
+	if !supported {
+		panic,,("Texture image format does not support linear blitting")
+	}
+}

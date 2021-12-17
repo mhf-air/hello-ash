@@ -1,0 +1,104 @@
+import {
+	ash {
+		version..EntryV1-0--r
+		vk
+		severity-ext vk..Debug-utils-message-severity-flags-e-x-t
+		type-ext vk..Debug-utils-message-type-flags-e-x-t
+	}
+	std {
+		ffi..C-str
+		os..raw..c-void
+		ptr
+	}
+}
+
+vulkan-debug-utils-callback func[unsafe, extern "system"](
+	message-severity severity-ext
+	message-type     type-ext
+	p-callback-data  *const vk..Debug-utils-messenger-callback-data-e-x-t
+	-p-user-data     *mut c-void
+) vk..Bool32 {
+	severity := match message-severity {
+		severity-ext..verbose--c:   "[Verbose]"
+		severity-ext..warning--c:   "[Warning]"
+		severity-ext..error--c:     "[Error]"
+		severity-ext..info--c:      "[Info]"
+		-:                          "[Unknown]"
+	}
+	types := match message-type {
+		type-ext..general--c:       "[General]"
+		type-ext..performance--c:   "[Performance]"
+		type-ext..validation--c:    "[Validation]"
+		-:                          "[Unknown]"
+	}
+	message := CStr..from-ptr((*p-callback-data).p-message)
+	d,,(severity, types, message)
+
+	ret vk..false--c
+}
+
+Validation-info+ struct {
+	is-enable+                 bool
+	required-validation-layer+ {{&'static str: 1}}
+}
+
+check-validation-layer-support+ func(entry &ash..Entry, required-validation-layers &Vec[&str]) bool {
+	layer-props := entry
+		.enumerate-instance-layer-properties()
+		.expect("Failed to enumerate Instance Layers Properties")
+
+	if layer-props.is-empty() {
+		eprintln,,("No available layers")
+		ret false
+	}
+
+	for layer-name in required-validation-layers.iter() {
+		found := false
+
+		for prop in layer-props.iter() {
+			name := vk-to-string(&prop.layer-name)
+			if *layer-name == name {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			ret false
+		}
+	}
+
+	ret true
+}
+
+setup-debug-utils+ func(
+	is-enable-debug bool
+	entry           &ash..Entry
+	instance        &ash..Instance
+) (
+	ash..extensions..ext..Debug-utils, vk..Debug-utils-messenger-e-x-t,
+) {
+	debug-utils-loader := ash..extensions..ext..Debug-utils..new(entry, instance)
+
+	if is-enable-debug {
+		ci := populate-debug-messenger-create-info()
+		utils-messenger := unsafe {
+			< debug-utils-loader
+				.create-debug-utils-messenger(&ci, None)
+				.expect("Debug Utils Callback")
+		}
+		ret (debug-utils-loader, utils-messenger)
+	} else {
+		ret (debug-utils-loader, ash..vk..Debug-utils-messenger-e-x-t..null())
+	}
+}
+
+populate-debug-messenger-create-info+ func() vk..Debug-utils-messenger-create-info-e-x-t{
+	ret vk..Debug-utils-messenger-create-info-e-x-t {
+		message-severity:  severity-ext..warning--c | severity-ext..error--c
+		message-type:      type-ext..general--c | type-ext..performance--c | type-ext..validation--c
+		pfn-user-callback: Some(vulkan-debug-utils-callback)
+		p-user-data:       ptr..null-mut()
+		...
+	}
+}

@@ -1,0 +1,157 @@
+import {
+	ash..vk
+	cgmath..Matrix4
+
+	memoffset..offset-of
+}
+
+Device-extension+ struct {
+	names+ {{&'static str: 1}}
+}
+
+#[!derive(Debug)]
+Surface-stuff+ struct {
+	surface-loader+ ash..extensions..khr..Surface
+	surface+        vk..Surface-k-h-r
+
+	screen-width+  u32
+	screen-height+ u32
+}
+#[!derive(Debug)]
+Swap-chain-stuff+ struct {
+	swapchain-loader+ ash..extensions..khr..Swapchain
+	swapchain+        vk..Swapchain-k-h-r
+	swapchain-images+ Vec[vk..Image]
+	swapchain-format+ vk..Format
+	swapchain-extent+ vk..Extent2-d
+}
+
+Swap-chain-support-detail+ struct {
+	capabilities+  vk..Surface-capabilities-k-h-r
+	formats+       Vec[vk..Surface-format-k-h-r]
+	present-modes+ Vec[vk..Present-mode-k-h-r]
+}
+
+Queue-family-indices+ struct {
+	graphics-family+ Option[u32]
+	present-family+  Option[u32]
+}
+Queue-family-indices impl {
+	new+ func() Queue-family-indices {
+		ret Queue-family-indices {
+			graphics-family: None
+			present-family:  None
+		}
+	}
+
+	is-complete+ (&) func() bool {
+		ret s.graphics-family.is-some() && s.present-family.is-some()
+	}
+}
+
+Sync-objects+ struct {
+	image-available-semaphores+ Vec[vk..Semaphore]
+	render-finished-semaphores+ Vec[vk..Semaphore]
+	inflight-fences+            Vec[vk..Fence]
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+Uniform-buffer-object+ struct {
+	model+ Matrix4[f32]
+	view+  Matrix4[f32]
+	proj+  Matrix4[f32]
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+Vertex-v1+ struct {
+	pos+   {{f32: 2}}
+	color+ {{f32: 3}}
+}
+Vertex-v1 impl {
+	get-binding-description+ func() {{vk..Vertex-input-binding-description: 1}} {
+		ret {{ vk..Vertex-input-binding-description {
+			binding:    0
+			stride:     std..mem..size-of[Vertex-v1]() as u32
+			input-rate: vk..Vertex-input-rate..vertex--c
+		} }}
+	}
+
+	get-attribute-descriptions+ func() {{vk..Vertex-input-attribute-description: 2}} {
+		ret {{
+			vk..Vertex-input-attribute-description {
+				binding:  0
+				location: 0
+				format:   vk..Format..r32g32-sfloat--c
+				offset:   offset-of,,(Vertex-v1, pos) as u32
+			}
+			vk..Vertex-input-attribute-description {
+				binding:  0
+				location: 1
+				format:   vk..Format..r32g32b32-sfloat--c
+				offset:   offset-of,,(Vertex-v1, color) as u32
+			}
+		}}
+	}
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+Vertex-v3+ struct {
+	pos+       {{f32: 4}}
+	color+     {{f32: 4}}
+	tex-coord+ {{f32: 2}}
+}
+Vertex-v3 impl {
+	get-binding-description+ func() {{vk..Vertex-input-binding-description: 1}} {
+		ret {{ vk..Vertex-input-binding-description {
+			binding:    0
+			stride:     std..mem..size-of[Self]() as u32
+			input-rate: vk..Vertex-input-rate..vertex--c
+		} }}
+	}
+
+	get-attribute-descriptions+ func() {{vk..Vertex-input-attribute-description: 3}} {
+		ret {{
+			vk..Vertex-input-attribute-description {
+				binding:  0
+				location: 0
+				format:   vk..Format..r32g32b32a32-sfloat--c
+				offset:   offset-of,,(Self, pos) as u32
+			}
+			vk..Vertex-input-attribute-description {
+				binding:  0
+				location: 1
+				format:   vk..Format..r32g32b32a32-sfloat--c
+				offset:   offset-of,,(Self, color) as u32
+			}
+			vk..Vertex-input-attribute-description {
+				binding:  0
+				location: 1
+				format:   vk..Format..r32g32-sfloat--c
+				offset:   offset-of,,(Self, tex-coord) as u32
+			}
+		}}
+	}
+}
+
+rect-vertices-data--c+ const {{Vertex-v1: 4}} = {{
+	Vertex-v1 {
+		pos:   {{~0.5, ~0.5}}
+		color: {{1.0, 0.0, 0.0}}
+	}
+	Vertex-v1 {
+		pos:   {{0.5, ~0.5}}
+		color: {{0.0, 1.0, 0.0}}
+	}
+	Vertex-v1 {
+		pos:   {{0.5, 0.5}}
+		color: {{0.0, 0.0, 1.0}}
+	}
+	Vertex-v1 {
+		pos:   {{~0.5, 0.5}}
+		color: {{1.0, 1.0, 1.0}}
+	}
+}}
+rect-indices-data--c+ const {{u32: 6}} = {{0, 1, 2, 2, 3, 0}}

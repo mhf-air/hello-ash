@@ -1,0 +1,28 @@
+import {
+	std..os..raw..c-char
+
+	ash..vk-make-version
+}
+
+application-version--c+ const u32 = vk-make-version,,(1, 0, 0)
+engine-version--c+ const u32 = vk-make-version,,(1, 0, 0)
+api-version--c+ const u32 = vk-make-version,,(1, 0, 92)
+
+window-width--c+ const u32 = 800
+window-height--c+ const u32 = 600
+validation--c+ const Validation-info = Validation-info {
+	is-enable:                 true
+	required-validation-layer: {{"VK_LAYER_KHRONOS_validation"}}
+}
+device-extensions--c+ const Device-extension = Device-extension {
+	names: {{"VK_KHR_swapchain"}}
+}
+max-frames-in-flight--c+ const usize = 2
+
+Device-extension impl {
+	get-extension-raw-names (&) func() {{*const c-char: 1}} {
+		ret {{
+			ash..extensions..khr..Swapchain..name().as-ptr()
+		}}
+	}
+}

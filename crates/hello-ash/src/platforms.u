@@ -1,0 +1,145 @@
+import {
+	ash {
+		version { EntryV1-0--r, InstanceV1-0--r }
+		vk
+		extensions {
+			ext..Debug-utils
+			khr..Surface
+		}
+	}
+}
+
+#[cfg(target-os = "windows")]
+import { ash..extensions..khr..Win32-surface }
+#[cfg(all(unix, not(target-os = "android"), not(target-os = "macos")))]
+import { ash..extensions..khr..Xlib-surface }
+#[cfg(target-os = "macos")]
+import { ash..extensions..mvk..Mac-o-s-surface }
+
+#[cfg(target-os = "macos")]
+import { cocoa..appkit { N-s-view, N-s-window } }
+#[cfg(target-os = "macos")]
+import { cocoa-id cocoa..base..id }
+#[cfg(target-os = "macos")]
+import { metal..Core-animation-layer }
+#[cfg(target-os = "macos")]
+import { objc..runtime..yes--c }
+
+// ----------------------------------------------------------------------
+// required extension
+#[cfg(target-os = "macos")]
+required-extension-names+ func() Vec[*const i8] {
+	ret vec,,(
+		Surface..name().as-ptr()
+		Mac-o-s-surface..name().as-ptr()
+		Debug-utils..name().as-ptr()
+	)
+}
+
+#[cfg(target-os = "windows")]
+required-extension-names+ func() Vec[*const i8] {
+	ret vec,,(
+		Surface..name().as-ptr()
+		Win32-surface..name().as-ptr()
+		Debug-utils..name().as-ptr()
+	)
+}
+
+#[cfg(all(unix, not(target-os = "android"), not(target-os = "macos")))]
+required-extension-names+ func() Vec[*const i8] {
+	ret vec,,(
+		Surface..name().as-ptr()
+		Xlib-surface..name().as-ptr()
+		Debug-utils..name().as-ptr()
+	)
+}
+
+// ----------------------------------------------------------------------
+// create surface
+#[cfg(all(unix, not(target-os = "android"), not(target-os = "macos")))]
+create-surface+[E EntryV1-0--r, I InstanceV1-0--r] func[unsafe](
+	entry    &E
+	instance &I
+	window   &winit..window..Window
+) Result[vk..Surface-k-h-r, vk..Result] {
+	import {
+		std..ptr
+		winit..platform..unix..Window-ext-unix
+	}
+
+	x11-display := window.xlib-display().unwrap()
+	x11-window := window.xlib-window().unwrap()
+	x11-create-info := vk..Xlib-surface-create-info-k-h-r {
+		s-type: vk..Structure-type..xlib-surface-create-info-khr--c
+		p-next: ptr..null()
+		flags:  Default..default()
+		window: x11-window as vk..Window
+		dpy:    x11-display as *mut vk..Display
+	}
+	xlib-surface-loader := Xlib-surface..new(entry, instance)
+	ret xlib-surface-loader.create-xlib-surface(&x11-create-info, None)
+}
+
+#[cfg(target-os = "macos")]
+create-surface+[E EntryV1-0--r, I InstanceV1-0--r] func[unsafe](
+	entry    &E
+	instance &I
+	window   &winit..window..Window
+) Result[vk..Surface-k-h-r, vk..Result] {
+	import {
+		std..mem
+		std..os..raw..c-void
+		std..ptr
+		winit..platform..macos..Window-ext-mac-o-s
+	}
+
+	wnd let cocoa-id = mem..transmute(window.ns-window())
+
+	layer := Core-animation-layer..new()
+
+	layer.set-edge-antialiasing-mask(0)
+	layer.set-presents-with-transaction(false)
+	layer.remove-all-animations()
+
+	view := wnd.contentView--r()
+
+	layer.set-contents-scale(view.backingScaleFactor--r())
+	view.setLayer--r(mem..transmute(layer.as-ref()))
+	view.setWantsLayer--r(yes--c)
+
+	create-info := vk..Mac-o-s-surface-create-info-m-v-k {
+		s-type: vk..Structure-type..macos-surface-create-info-m--c
+		p-next: ptr..null()
+		flags:  Default..default()
+		p-view: window.ns-view() as *const c-void
+	}
+	macos-surface-loader := Mac-o-s-surface..new(entry, instance)
+	ret macos-surface-loader.create-mac-os-surface-mvk(&create-info, None)
+}
+
+#[cfg(target-os = "windows")]
+create-surface+[E EntryV1-0--r, I InstanceV1-0--r] func[unsafe](
+	entry    &E
+	instance &I
+	window   &winit..window..Window
+) Result[vk..Surface-k-h-r, vk..Result] {
+	import {
+		std..os..raw..c-void
+		std..ptr
+		winapi..shared..windef..hwnd--c
+		winapi..um..libloaderapi..Get-module-handle-w
+		winit..platform..windows..Window-ext-windows
+	}
+
+	hwnd := window.hwnd() as hwnd--c
+	hinstance := Get-module-handle-w(ptr..null()) as *const c-void
+	win32-create-info := vk..Win32-surface-create-info-k-h-r {
+		s-type: vk..Structure-type..win32-surface-create-info-khr--c
+		p-next: ptr..null()
+		flags:  Default..default()
+		hinstance
+		hwnd: hwnd as *const c-void
+	}
+	win32-surface-loader := Xlib-surface..new(entry, instance)
+	ret win32-surface-loader.create-xlib-surface(&win32-create-info, None)
+}
