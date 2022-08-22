@@ -44,9 +44,9 @@ Program-proc impl {
 
 	main-loop+[A 'static + Vulkan-app] (Self) func(vulkan-app A) {
 		vulkan-app := vulkan-app
-		tick-counter := fps-limiter..Fps-limiter..new()
+		tick-counter := Fps-limiter..new()
 
-		s.event-loop.run(move |event, -, control-flow| {
+		s.event-loop.run(|[move] event, -, control-flow| {
 			match event {
 				Event..Window-event{ event, ... }: {
 					match event {
