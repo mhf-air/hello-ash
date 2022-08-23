@@ -434,7 +434,7 @@ choose-swapchain-present-mode+ func(
 choose-swapchain-extent+ func(
 	capabilities &vk..Surface-capabilities-k-h-r
 	window       &winit..window..Window
-) vk..Extent2-d {
+) vk..Extent2D--r {
 	if capabilities.current-extent.width != u32..max-value() {
 		ret capabilities.current-extent
 	} else {
@@ -447,7 +447,7 @@ choose-swapchain-extent+ func(
 			window-size.height
 		)
 
-		ret vk..Extent2-d {
+		ret vk..Extent2D--r {
 			width: clamp(
 				window-size.width as u32
 				capabilities.min-image-extent.width

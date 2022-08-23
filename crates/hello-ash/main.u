@@ -95,7 +95,7 @@ App struct {
 	swapchain              vk..Swapchain-k-h-r
 	swapchain-images       Vec[vk..Image]
 	swapchain-format       vk..Format
-	swapchain-extent       vk..Extent2-d
+	swapchain-extent       vk..Extent2D--r
 	swapchain-imageviews   Vec[vk..Image-view]
 	swapchain-framebuffers Vec[vk..Framebuffer]
 
@@ -484,7 +484,7 @@ App impl {
 		render-pass      vk..Render-pass
 		image-views      &Vec[vk..Image-view]
 		depth-image-view vk..Image-view
-		swapchain-extent vk..Extent2-d
+		swapchain-extent vk..Extent2D--r
 	) Vec[vk..Framebuffer] {
 		framebuffers := vec,,()
 
@@ -516,7 +516,7 @@ App impl {
 	create-graphics-pipeline func(
 		device           &ash..Device
 		render-pass      vk..Render-pass
-		swapchain-extent vk..Extent2-d
+		swapchain-extent vk..Extent2D--r
 		ubo-set-layout   vk..Descriptor-set-layout
 	) (vk..Pipeline, vk..Pipeline-layout) {
 		vert-shader-module := share..create-shader-module(
@@ -722,7 +722,7 @@ App impl {
 		graphics-pipeline vk..Pipeline
 		framebuffers      &Vec[vk..Framebuffer]
 		render-pass       vk..Render-pass
-		surface-extent    vk..Extent2-d
+		surface-extent    vk..Extent2D--r
 		vertex-buffer     vk..Buffer
 		index-buffer      vk..Buffer
 		pipeline-layout   vk..Pipeline-layout

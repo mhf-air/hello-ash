@@ -78,7 +78,7 @@ create-render-pass+ func(device &ash..Device, surface-format vk..Format) vk..Ren
 create-graphics-pipeline+ func(
 	device           &ash..Device
 	render-pass      vk..Render-pass
-	swapchain-extent vk..Extent2-d
+	swapchain-extent vk..Extent2D--r
 ) (vk..Pipeline, vk..Pipeline-layout) {
 	vert-shader-module := create-shader-module(
 		device,
@@ -133,8 +133,8 @@ create-graphics-pipeline+ func(
 	}}
 
 	scissors := {{
-		vk..Rect2-d {
-			offset: vk..Offset2-d { x: 0, y: 0 }
+		vk..Rect2D--r {
+			offset: vk..Offset2D--r { x: 0, y: 0 }
 			extent: swapchain-extent
 		}
 	}}
@@ -274,7 +274,7 @@ create-framebuffers+ func(
 	device           &ash..Device
 	render-pass      vk..Render-pass
 	image-views      &Vec[vk..Image-view]
-	swapchain-extent vk..Extent2-d
+	swapchain-extent vk..Extent2D--r
 ) Vec[vk..Framebuffer] {
 	framebuffers := vec,,()
 
@@ -325,7 +325,7 @@ create-command-buffers+ func(
 	graphics-pipeline vk..Pipeline
 	framebuffers      &Vec[vk..Framebuffer]
 	render-pass       vk..Render-pass
-	surface-extent    vk..Extent2-d
+	surface-extent    vk..Extent2D--r
 ) Vec[vk..Command-buffer]  {
 	ai := vk..Command-buffer-allocate-info {
 		command-buffer-count: framebuffers.len() as u32
@@ -363,8 +363,8 @@ create-command-buffers+ func(
 
 		render-pass-bi := vk..Render-pass-begin-info {
 			framebuffer: framebuffers{{i}}
-			render-area: vk..Rect2-d {
-				offset: vk..Offset2-d { x: 0, y: 0 }
+			render-area: vk..Rect2D--r {
+				offset: vk..Offset2D--r { x: 0, y: 0 }
 				extent: surface-extent
 			}
 			clear-value-count: clear-values.len() as u32
@@ -706,7 +706,7 @@ create-image+ func(
 		queue-family-index-count: 0
 		p-queue-family-indices:   ptr..null()
 		initial-layout:           vk..Image-layout..undefined--c
-		extent: vk..Extent3-d {
+		extent: vk..Extent3D--r {
 			width
 			height
 			depth: 1
@@ -1027,7 +1027,7 @@ create-depth-resources+ func(
 	physical-device          vk..Physical-device
 	-command-pool            vk..Command-pool
 	-submit-queue            vk..Queue
-	swapchain-extent         vk..Extent2-d
+	swapchain-extent         vk..Extent2D--r
 	device-memory-properties &vk..Physical-device-memory-properties
 	msaa-samples             vk..Sample-count-flags
 ) (vk..Image, vk..Image-view, vk..Device-memory) {
@@ -1115,8 +1115,8 @@ generate-mipmaps+ func(
 					layer-count:      1
 				}
 				src-offsets: {{
-					vk..Offset3-d { x: 0, y: 0, z: 0 }
-					vk..Offset3-d {
+					vk..Offset3D--r { x: 0, y: 0, z: 0 }
+					vk..Offset3D--r {
 						x: mip-width
 						y: mip-height
 						z: 1
@@ -1129,8 +1129,8 @@ generate-mipmaps+ func(
 					layer-count:      1
 				}
 				dst-offsets: {{
-					vk..Offset3-d { x: 0, y: 0, z: 0 }
-					vk..Offset3-d {
+					vk..Offset3D--r { x: 0, y: 0, z: 0 }
+					vk..Offset3D--r {
 						x: max(mip-width / 2, 1)
 						y: max(mip-height / 2, 1)
 						z: 1

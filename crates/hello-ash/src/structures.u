@@ -23,7 +23,7 @@ Swap-chain-stuff+ struct {
 	swapchain+        vk..Swapchain-k-h-r
 	swapchain-images+ Vec[vk..Image]
 	swapchain-format+ vk..Format
-	swapchain-extent+ vk..Extent2-d
+	swapchain-extent+ vk..Extent2D--r
 }
 
 Swap-chain-support-detail+ struct {
