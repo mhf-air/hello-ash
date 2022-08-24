@@ -1,8 +1,5 @@
 import {
 	ash {
-		version..DeviceV1-0--r
-		version..EntryV1-0--r
-		version..InstanceV1-0--r
 		vk
 	}
 
@@ -252,13 +249,17 @@ find-queue-family+ func(
 		}
 
 		is-present-support := unsafe {
-			< surface-stuff
+			a := surface-stuff
 				.surface-loader
 				.get-physical-device-surface-support(
 					physical-device
 					index as u32
 					surface-stuff.surface
 				)
+			< match a {
+				Ok(a): a
+				Err(-): false
+			}
 		}
 		if queue-family.queue-count > 0 && is-present-support {
 			queue-family-indices.present-family = Some(index)

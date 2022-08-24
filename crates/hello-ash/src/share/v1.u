@@ -1,5 +1,4 @@
 import {
-	ash..version..DeviceV1-0--r
 	ash..vk
 	image..Generic-image-view
 
@@ -197,7 +196,7 @@ create-graphics-pipeline+ func(
 	color-blend-attachment-states := {{
 		vk..Pipeline-color-blend-attachment-state {
 			blend-enable:           vk..false--c
-			color-write-mask:       vk..Color-component-flags..all()
+			color-write-mask:       vk..Color-component-flags..rgba--c
 			src-color-blend-factor: vk..Blend-factor..one--c
 			dst-color-blend-factor: vk..Blend-factor..zero--c
 			color-blend-op:         vk..Blend-op..add--c

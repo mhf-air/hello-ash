@@ -1,12 +1,12 @@
 import {
 	std..os..raw..c-char
 
-	ash..vk-make-version
+	ash..vk..make-api-version
 }
 
-application-version--c+ const u32 = vk-make-version,,(1, 0, 0)
-engine-version--c+ const u32 = vk-make-version,,(1, 0, 0)
-api-version--c+ const u32 = vk-make-version,,(1, 0, 92)
+application-version--c+ const u32 = make-api-version(0, 1, 0, 0)
+engine-version--c+ const u32 = make-api-version(0, 1, 0, 0)
+api-version--c+ const u32 = make-api-version(0, 1, 0, 0)
 
 window-width--c+ const u32 = 800
 window-height--c+ const u32 = 600

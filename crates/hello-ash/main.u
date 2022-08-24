@@ -5,8 +5,6 @@ import {
 
 	ash{
 		vk
-		version..DeviceV1-0--r
-		version..InstanceV1-0--r
 	}
 	cgmath { Deg, Matrix4, Point3, Vector3 }
 	memoffset..offset-of
@@ -144,7 +142,9 @@ App impl {
 		window := util..init-window(&event-loop, window-title--c,
 			util..window-width--c, util..window-height--c)
 
-		entry := ash..Entry..new().unwrap()
+		entry := unsafe {
+			< ash..Entry..load().unwrap()
+		}
 		instance := share..create-instance(
 			&entry
 			window-title--c
@@ -641,7 +641,7 @@ App impl {
 		color-blend-attachment-states := {{
 			vk..Pipeline-color-blend-attachment-state {
 				blend-enable:           vk..false--c
-				color-write-mask:       vk..Color-component-flags..all()
+				color-write-mask:       vk..Color-component-flags..rgba--c
 				src-color-blend-factor: vk..Blend-factor..one--c
 				dst-color-blend-factor: vk..Blend-factor..zero--c
 				color-blend-op:         vk..Blend-op..add--c

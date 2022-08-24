@@ -1,6 +1,5 @@
 import {
 	ash {
-		version..EntryV1-0--r
 		vk
 		severity-ext vk..Debug-utils-message-severity-flags-e-x-t
 		type-ext vk..Debug-utils-message-type-flags-e-x-t

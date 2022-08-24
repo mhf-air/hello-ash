@@ -1,6 +1,5 @@
 import {
 	ash {
-		version { EntryV1-0--r, InstanceV1-0--r }
 		vk
 		extensions {
 			ext..Debug-utils
@@ -57,9 +56,9 @@ required-extension-names+ func() Vec[*const i8] {
 // ----------------------------------------------------------------------
 // create surface
 #[cfg(all(unix, not(target-os = "android"), not(target-os = "macos")))]
-create-surface+[E EntryV1-0--r, I InstanceV1-0--r] func[unsafe](
-	entry    &E
-	instance &I
+create-surface+ func[unsafe](
+	entry    &ash..Entry
+	instance &ash..Instance
 	window   &winit..window..Window
 ) Result[vk..Surface-k-h-r, vk..Result] {
 	import {
@@ -81,9 +80,9 @@ create-surface+[E EntryV1-0--r, I InstanceV1-0--r] func[unsafe](
 }
 
 #[cfg(target-os = "macos")]
-create-surface+[E EntryV1-0--r, I InstanceV1-0--r] func[unsafe](
-	entry    &E
-	instance &I
+create-surface+ func[unsafe](
+	entry    &ash..Entry
+	instance &ash..Instance
 	window   &winit..window..Window
 ) Result[vk..Surface-k-h-r, vk..Result] {
 	import {
@@ -118,9 +117,9 @@ create-surface+[E EntryV1-0--r, I InstanceV1-0--r] func[unsafe](
 }
 
 #[cfg(target-os = "windows")]
-create-surface+[E EntryV1-0--r, I InstanceV1-0--r] func[unsafe](
-	entry    &E
-	instance &I
+create-surface+ func[unsafe](
+	entry    &ash..Entry
+	instance &ash..Instance
 	window   &winit..window..Window
 ) Result[vk..Surface-k-h-r, vk..Result] {
 	import {
