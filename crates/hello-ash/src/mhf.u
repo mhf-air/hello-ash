@@ -1,0 +1,132 @@
+import {
+	ash {
+		vk
+	}
+	winit {
+		window
+		event-loop
+	}
+
+	std {
+		ffi..C-string
+		os {
+			raw { c-char, c-void }
+		}
+		path..Path
+		ptr
+	}
+}
+
+// ----------------------------------------------------------------------
+Config+['a] struct {
+	window                     &'a Config-window['a]
+	enable-debug               bool
+	required-validation-layers &'a Vec[&'a str]
+}
+
+Config-window+['a] struct {
+	title  &'a str
+	width  u32
+	height u32
+}
+
+// ----------------------------------------------------------------------
+#[!derive(Debug)]
+App+['a] struct {
+	config+ &'a Config['a]
+	window+ window..Window
+	entry+  ash..Entry
+}
+
+App['a] ['a] impl {
+	new+ func(config &'a Config, event-loop &event-loop..Event-loop[()]) App['a] {
+		window := window..Window-builder..new()
+			.with-title(config.window.title)
+			.with-inner-size(winit..dpi..Logical-size..new(config.window.width, config.window.height))
+			.build(event-loop)
+			.expect("Failed to create window")
+
+		entry := unsafe {
+			< ash..Entry..load().unwrap()
+		}
+
+		ret App {
+			config
+			entry
+			window
+		}
+	}
+
+	create-instance+ (&) func() Instance {
+		config := &s.config
+
+		/* if config.enable-debug &&
+				!crate..check-validation-layer-support(s.entry, required-validation-layers) {
+			panic,,("Validation layers requested, but not available")
+		} */
+
+		app-name := C-string..new(config.window.title).unwrap()
+		engine-name := C-string..new("Vulkan engine").unwrap()
+		app-info := vk..Application-info {
+			p-application-name:  app-name.as-ptr()
+			application-version: crate..application-version--c
+			p-engine-name:       engine-name.as-ptr()
+			engine-version:      crate..engine-version--c
+			api-version:         crate..api-version--c
+			...
+		}
+
+		debug-utils-ci := crate..populate-debug-messenger-create-info()
+
+		extension-names := crate..required-extension-names()
+
+		required-validation-layer-raw-names := config.required-validation-layers
+			.iter()
+			.map(|layer-name| C-string..new(*layer-name).unwrap())
+			.collect[Vec[C-string]]()
+		layer-names := required-validation-layer-raw-names
+			.iter()
+			.map(|layer-name| layer-name.as-ptr())
+			.collect[Vec[*const i8]]()
+
+		ci := vk..Instance-create-info {
+			p-next: if crate..validation--c.is-enable {
+				< &debug-utils-ci as *const vk..Debug-utils-messenger-create-info-e-x-t as *const c-void
+			} else {
+				< ptr..null()
+			}
+			p-application-info: &app-info
+			pp-enabled-layer-names: if config.enable-debug {
+				< layer-names.as-ptr()
+			} else {
+				< ptr..null()
+			}
+			enabled-layer-count: if config.enable-debug {
+				< layer-names.len()
+			} else {
+				< 0
+			} as u32
+			pp-enabled-extension-names: extension-names.as-ptr()
+			enabled-extension-count:    extension-names.len() as u32
+			...
+		}
+
+		instance := unsafe {
+			< s.entry
+				.create-instance(&ci, None)
+				.expect("Failed to create instance")
+		}
+
+		ret Instance {
+			app: s
+			instance
+		}
+	}
+}
+
+// ----------------------------------------------------------------------
+#[!derive(Debug)]
+Instance+['a] struct {
+	app+      &'a App['a]
+	instance+ ash..Instance
+}
