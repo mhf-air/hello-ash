@@ -16,8 +16,8 @@ import {
 }
 
 window-title--c const &'static str = "Model Loading"
-model-path--c const &'static str = "crates/hello-ash/assets/chalet.obj"
-texture-path--c const &'static str = "crates/hello-ash/assets/chalet.jpg"
+model-path--c const &'static str = "raw/assets/chalet.obj"
+texture-path--c const &'static str = "raw/assets/chalet.jpg"
 
 main func() {
 	program-proc := util..Program-proc..new()
@@ -521,11 +521,11 @@ App impl {
 	) (vk..Pipeline, vk..Pipeline-layout) {
 		vert-shader-module := share..create-shader-module(
 			device
-			include-bytes,,(u-path,,("../../crates/hello-ash/shaders/spv/26-shader-depth.vert.spv")).to-vec()
+			include-bytes,,("../../raw/shaders/spv/26-shader-depth.vert.spv").to-vec()
 		)
 		frag-shader-module := share..create-shader-module(
 			device
-			include-bytes,,(u-path,,("../../crates/hello-ash/shaders/spv/26-shader-depth.frag.spv")).to-vec()
+			include-bytes,,("../../raw/shaders/spv/26-shader-depth.frag.spv").to-vec()
 		)
 
 		main-function-name := C-string..new("main").unwrap()
