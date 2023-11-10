@@ -81,11 +81,11 @@ create-graphics-pipeline+ func(
 ) (vk..Pipeline, vk..Pipeline-layout) {
 	vert-shader-module := create-shader-module(
 		device,
-		include-bytes,,("../../../../raw/shaders/spv/09-shader-base.vert.spv").to-vec(),
+		include-bytes,,("../../../../move/shaders/spv/09-shader-base.vert.spv").to-vec(),
 	)
 	frag-shader-module := create-shader-module(
 		device,
-		include-bytes,,("../../../../raw/shaders/spv/09-shader-base.frag.spv").to-vec(),
+		include-bytes,,("../../../../move/shaders/spv/09-shader-base.frag.spv").to-vec(),
 	)
 
 	main-function-name := C-string..new("main").unwrap()
